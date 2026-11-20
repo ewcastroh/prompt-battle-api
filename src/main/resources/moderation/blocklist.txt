@@ -1,0 +1,3 @@
+# Blocklist for nicknames and prompts (SPEC §6.3), Spanish and English, one term or phrase per line.
+# Matched as whole words after lowercasing and removing accents.
+# Placeholder in phase A1: the content and leetspeak/repeated-letter normalization come in phase A3.

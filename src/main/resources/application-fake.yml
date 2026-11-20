@@ -1,0 +1,7 @@
+# Profile "fake": every provider is fake; no keys needed; the app is fully playable offline (SPEC §11.1).
+app:
+  image:
+    provider-chain: fake
+    load-split: ""
+  embedding:
+    provider-chain: fake

@@ -1,0 +1,91 @@
+# Prompt Battle API. Every value comes from an environment variable (SPEC §11.1); defaults are for local runs.
+# Model IDs live only here and in env vars. ONE instance only: state is in memory (SPEC §7.4).
+spring:
+  application:
+    name: prompt-battle-api
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
+  threads:
+    virtual:
+      enabled: true
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+  request:
+    header:
+      forwarded:
+        # Behind Railway's proxy the client IP comes from X-Forwarded-For (per-IP join limit, SPEC §6.4).
+        strategy: ${FORWARD_HEADERS_STRATEGY:framework}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    root: INFO
+
+app:
+  public-ui-url: ${PUBLIC_UI_URL:http://localhost:4200}
+  cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
+  cities: ${CITIES:mde:Medellín,bog:Bogotá}
+  data-dir: ${DATA_DIR:./data}
+  snapshot-interval: 10s
+  tick-interval: 250ms
+  image:
+    provider-chain: ${IMAGE_PROVIDER_CHAIN:fal,bfl}
+    load-split: ${IMAGE_LOAD_SPLIT:fal,bfl}
+    timeout-seconds: ${IMAGE_TIMEOUT_SECONDS:45}
+  fal:
+    key: ${FAL_KEY:}
+    model: ${FAL_MODEL:fal-ai/flux-2/klein/9b}
+    max-concurrency: ${FAL_MAX_CONCURRENCY:10}
+  bfl:
+    key: ${BFL_API_KEY:}
+    model: ${BFL_MODEL:flux-2-klein-9b}
+    max-concurrency: ${BFL_MAX_CONCURRENCY:24}
+  embedding:
+    provider-chain: ${EMBEDDING_PROVIDER_CHAIN:gemini,cohere}
+    mode: ${EMBEDDING_MODE:entries}
+  gemini:
+    api-key: ${GEMINI_API_KEY:}
+    embedding-model: ${GEMINI_EMBEDDING_MODEL:gemini-embedding-2}
+    embedding-dimensions: ${GEMINI_EMBEDDING_DIMENSIONS:768}
+    embedding-rpm: ${GEMINI_EMBEDDING_RPM:90}
+    embedding-tpm: ${GEMINI_EMBEDDING_TPM:27000}
+    embedding-rpd: ${GEMINI_EMBEDDING_RPD:1000}
+  cohere:
+    api-key: ${COHERE_API_KEY:}
+    embedding-model: ${COHERE_EMBEDDING_MODEL:embed-v4.0}
+  commentary:
+    api-key: ${ANTHROPIC_API_KEY:}
+    model: ${COMMENTARY_MODEL:claude-sonnet-5-5}
+  game:
+    attempts-per-round: ${ATTEMPTS_PER_ROUND:3}
+    round-grace-seconds: ${ROUND_GRACE_SECONDS:20}
+    calibration-anchors: ${CALIBRATION_ANCHORS:6}
+    calibration-prompts:
+      - a bowl of soup on a table
+      - a red bicycle
+      - a mountain landscape
+      - a city street at night
+      - a cat sleeping
+      - abstract colorful shapes
+    mini-podium-enabled: ${MINI_PODIUM_ENABLED:true}
+    prompt-translate-to-en: ${PROMPT_TRANSLATE_TO_EN:false}
+    prompt-llm-moderation: ${PROMPT_LLM_MODERATION:false}
+  fake:
+    model: fake-v1
+    latency-ms: ${FAKE_LATENCY_MS:1500}
+    failure-rate: ${FAKE_FAILURE_RATE:0}
+    max-concurrency: ${FAKE_MAX_CONCURRENCY:10}
+    embedding-dimensions: 768

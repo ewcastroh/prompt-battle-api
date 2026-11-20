@@ -1,0 +1,14 @@
+# Fallback comments by score band (SPEC §4.4). Format: <band>|<text>.
+# Bands: 85 (≥ 85), 70 (70–85), 50 (50–70), 0 (< 50). Line n of each band translates line n in fallback-es.txt.
+85|Nearly an exact copy! The AI had to look twice.
+85|Impressive! This looks like it came from the same canvas.
+85|Expert aim! You compiled your imagination with zero errors.
+70|So close! You clearly got the idea.
+70|Great work! Just a little short of perfect.
+70|Good eye! The image captures the essentials.
+50|You're on the right track! Several clues are spot on.
+50|Interesting take! The AI sees the resemblance.
+50|Not bad at all! A couple of tweaks and you'll reach the top.
+0|Pure creativity! The AI saw something truly original.
+0|What an imagination! You took your own path.
+0|A bold idea! Sometimes the best one is the unexpected.

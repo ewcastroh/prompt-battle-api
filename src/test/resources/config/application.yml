@@ -1,0 +1,18 @@
+# Test configuration (loaded on top of the main application.yml). Fake providers only: tests never call
+# real providers. The admin tokens below are test fixtures, not secrets.
+spring:
+  profiles:
+    active: fake
+ADMIN_TOKEN_MDE: test-admin-token-medellin-0000
+ADMIN_TOKEN_BOG: test-admin-token-bogota-00000
+app:
+  public-ui-url: https://ui.test
+  cors-allowed-origins: https://ui.test,http://localhost:4200
+  data-dir: ${java.io.tmpdir}/prompt-battle-test/${random.uuid}
+  snapshot-interval: 200ms
+  tick-interval: 50ms
+  fake:
+    latency-ms: 5
+logging:
+  level:
+    root: WARN

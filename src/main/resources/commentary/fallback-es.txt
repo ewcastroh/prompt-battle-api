@@ -1,0 +1,14 @@
+# Comentarios de respaldo por franja de puntaje (SPEC §4.4). Formato: <franja>|<texto>.
+# Franjas: 85 (≥ 85), 70 (70–85), 50 (50–70), 0 (< 50). La línea n de cada franja se traduce en fallback-en.txt.
+85|¡Casi una copia exacta! La IA tuvo que mirar dos veces.
+85|¡Impresionante! Esto parece sacado del mismo lienzo.
+85|¡Puntería de experto! Compilaste la imaginación sin errores.
+70|¡Muy cerca! Se nota que entendiste la idea.
+70|¡Gran trabajo! Faltó poquito para la perfección.
+70|¡Buen ojo! La imagen captura lo esencial.
+50|¡Vas por buen camino! Hay varias pistas acertadas.
+50|¡Interesante versión! La IA reconoce el parecido.
+50|¡Nada mal! Un par de ajustes y llegas a la cima.
+0|¡Creatividad pura! La IA vio algo muy original.
+0|¡Qué imaginación! Tomaste un camino propio.
+0|¡Valiente propuesta! A veces la mejor idea es la inesperada.

@@ -1,0 +1,12 @@
+# Model IDs the API refuses to start with (SPEC §5.3). One per line; '*' matches anything.
+# Retired or retiring before the event (2026-12-02)
+gpt-image-1
+gpt-image-1.5
+gpt-image-1-mini
+chatgpt-image-latest
+gemini-3.1-flash-image-preview
+imagen-4*
+# Older generations we do not want even if still online
+dall-e-2
+dall-e-3
+gemini-2.5-flash-image
