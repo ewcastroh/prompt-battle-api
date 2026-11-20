@@ -370,12 +370,51 @@ public final class GameViews {
         for (Entry e : run.entries.values()) {
             Attempt a = run.attempts.get(e.attemptId);
             Player p = city.players.get(e.playerId);
-            result.add(new AdminEntry(e.attemptId, p.id, p.nickname, a.prompt, null, Views.imageUrl(a.imageId),
+            result.add(new AdminEntry(e.attemptId, p.id, p.nickname, a.prompt, a.promptEn, Views.imageUrl(a.imageId),
                     Views.thumbUrl(a.imageId), a.provider, a.model, e.score == null ? null : run.embeddingProvider,
                     e.cos, e.score == null ? null : run.floor, e.score, e.hidden, e.auto, e.selectedAt));
         }
         result.sort(Comparator.comparing(AdminEntry::score, Comparator.nullsLast(Comparator.reverseOrder())));
         return result;
+    }
+
+    /**
+     * The city's results for the CSV export (API.md §7): ranked players in final order, then the other
+     * non-kicked players, then kicked ones (both in join order, without a rank). One score per scored round
+     * played in the city: the score that counts toward the total, 0 when hidden, null without an entry.
+     */
+    public Views.Results results(String cityCode) {
+        CityRun city = game.city(cityCode);
+        List<RoundDefinition> rounds = Ranking.scoredRounds(state, city);
+        List<String> roundNames = new ArrayList<>();
+        for (RoundDefinition d : rounds) {
+            roundNames.add(d.name);
+        }
+        List<Views.ResultRow> rows = new ArrayList<>();
+        Set<String> listed = new HashSet<>();
+        int rank = 0;
+        for (Standing s : Ranking.finalRanking(state, city)) {
+            rows.add(resultRow(city, rounds, s.player(), ++rank));
+            listed.add(s.player().id);
+        }
+        for (boolean kicked : new boolean[] {false, true}) {
+            for (Player p : city.players.values()) {
+                if (p.kicked == kicked && !listed.contains(p.id)) {
+                    rows.add(resultRow(city, rounds, p, null));
+                }
+            }
+        }
+        return new Views.Results(city.code, roundNames, rows);
+    }
+
+    private Views.ResultRow resultRow(CityRun city, List<RoundDefinition> rounds, Player p, Integer rank) {
+        List<Double> scores = new ArrayList<>();
+        for (RoundDefinition d : rounds) {
+            Entry e = city.runs.get(d.id).entries.get(p.id);
+            scores.add(e == null || e.score == null ? null : e.hidden ? 0.0 : e.score);
+        }
+        double total = Ranking.standing(city, rounds, p).total();
+        return new Views.ResultRow(rank, p.nickname, p.claimCode, total, scores, p.kicked);
     }
 
     /** Newest first, at most 100. */

@@ -1,19 +1,27 @@
 package io.github.ewcastroh.promptbattle.config;
 
+import io.github.ewcastroh.promptbattle.commentary.AnthropicChat;
+import io.github.ewcastroh.promptbattle.commentary.SpringAiCommentary;
+import io.github.ewcastroh.promptbattle.game.Moderation;
 import io.github.ewcastroh.promptbattle.generation.BflImageGenerator;
 import io.github.ewcastroh.promptbattle.generation.FalImageGenerator;
 import io.github.ewcastroh.promptbattle.generation.ProviderHttp;
 import io.github.ewcastroh.promptbattle.generation.RetryPolicy;
+import io.github.ewcastroh.promptbattle.moderation.LlmModerator;
+import io.github.ewcastroh.promptbattle.moderation.PromptTranslator;
+import io.github.ewcastroh.promptbattle.persistence.ImageStore;
 import io.github.ewcastroh.promptbattle.scoring.CohereEmbeddingProvider;
 import io.github.ewcastroh.promptbattle.scoring.EmbeddingRateLimiter;
 import io.github.ewcastroh.promptbattle.scoring.GeminiEmbeddingProvider;
 import java.time.Clock;
 import java.time.Duration;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Condition;
 import org.springframework.context.annotation.ConditionContext;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.type.AnnotatedTypeMetadata;
 import org.springframework.util.StringUtils;
@@ -70,6 +78,36 @@ public class ProvidersConfig {
                 Duration.ofSeconds(props.embedding().timeoutSeconds()), http, RetryPolicy.STANDARD);
     }
 
+    /** The Anthropic client for commentary, LLM moderation and translation (one model, COMMENTARY_MODEL). */
+    @Bean
+    @Conditional(HasAnthropicKey.class)
+    ChatClient anthropicChatClient(AppProperties props) {
+        AppProperties.Commentary c = props.commentary();
+        return AnthropicChat.client(c.apiKey(), c.baseUrl(), c.model(), c.timeout());
+    }
+
+    /** Preferred over the canned {@code FallbackCommentary}, which stays the fallback (SPEC §4.4). */
+    @Bean
+    @Primary
+    @Conditional(HasAnthropicKey.class)
+    SpringAiCommentary springAiCommentary(ChatClient anthropicChatClient, ImageStore images, Moderation moderation) {
+        return new SpringAiCommentary(anthropicChatClient, images, moderation);
+    }
+
+    /** Used only when PROMPT_LLM_MODERATION=true (GameConfig). */
+    @Bean
+    @Conditional(HasAnthropicKey.class)
+    LlmModerator llmModerator(ChatClient anthropicChatClient) {
+        return new LlmModerator(anthropicChatClient);
+    }
+
+    /** Used only when PROMPT_TRANSLATE_TO_EN=true (GameConfig). */
+    @Bean
+    @Conditional(HasAnthropicKey.class)
+    PromptTranslator promptTranslator(ChatClient anthropicChatClient) {
+        return new PromptTranslator(anthropicChatClient);
+    }
+
     /** Matches when the property has text (the YAML defaults every key to an empty string). */
     abstract static class HasText implements Condition {
 
@@ -100,6 +138,12 @@ public class ProvidersConfig {
     static final class HasGeminiKey extends HasText {
         HasGeminiKey() {
             super("app.gemini.api-key");
+        }
+    }
+
+    static final class HasAnthropicKey extends HasText {
+        HasAnthropicKey() {
+            super("app.commentary.api-key");
         }
     }
 

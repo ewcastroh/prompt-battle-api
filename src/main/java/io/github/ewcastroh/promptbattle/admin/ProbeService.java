@@ -1,7 +1,9 @@
 package io.github.ewcastroh.promptbattle.admin;
 
 import io.github.ewcastroh.promptbattle.city.GameRuntime;
+import io.github.ewcastroh.promptbattle.commentary.AnthropicChat;
 import io.github.ewcastroh.promptbattle.commentary.CommentaryPort;
+import io.github.ewcastroh.promptbattle.commentary.SpringAiCommentary;
 import io.github.ewcastroh.promptbattle.game.Commentary;
 import io.github.ewcastroh.promptbattle.game.Effect;
 import io.github.ewcastroh.promptbattle.game.GameEngine;
@@ -26,6 +28,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.client.ContentFilteredException;
 
 /**
  * The provider probe (SPEC §7.6, §4.2), the first thing each admin runs on event day. In parallel:
@@ -34,7 +37,7 @@ import org.slf4j.LoggerFactory;
  * while its circuit is open (a success closes it);</li>
  * <li>for each configured embedding provider, the same local test image embedded twice without the cache:
  * the max difference decides averaging (stored by the domain, alert DETERMINISM_AVERAGING);</li>
- * <li>one commentary call, or {@code NOT_CONFIGURED} while only the canned comments exist (before A3).</li>
+ * <li>one commentary call, or {@code NOT_CONFIGURED} when no commentary model is configured (no key, or the fake profile).</li>
  * </ul>
  * It spends real credits, so concurrent requests (both admins at once) share one run.
  */
@@ -152,7 +155,7 @@ public final class ProbeService {
             String imageId = images.store(FakeImageGenerator.render(PROMPT, SEED, 512, 512));
             Commentary c = CompletableFuture.supplyAsync(() -> commentary.comment(
                             new Effect.CommentaryJob("probe", imageId, imageId, 50.0, 1, null)), executor)
-                    .get(GameRuntime.COMMENTARY_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+                    .get(runtime.commentaryTimeout().toMillis(), TimeUnit.MILLISECONDS);
             boolean ok = c != null && c.es() != null && !c.es().isBlank() && c.en() != null && !c.en().isBlank();
             return new Result("COMMENTARY", COMMENTARY_PROVIDER, commentaryModel, ok,
                     (System.nanoTime() - started) / 1_000_000, ok ? null : "INVALID_RESPONSE", null);
@@ -163,8 +166,13 @@ public final class ProbeService {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
+            Throwable cause = e instanceof java.util.concurrent.ExecutionException && e.getCause() != null
+                    ? e.getCause() : e;
+            boolean invalid = cause instanceof SpringAiCommentary.InvalidCommentaryException
+                    || cause instanceof AnthropicChat.ModelRefusedException || cause instanceof ContentFilteredException
+                    || cause instanceof IllegalStateException;
             return new Result("COMMENTARY", COMMENTARY_PROVIDER, commentaryModel, false,
-                    (System.nanoTime() - started) / 1_000_000, "PROVIDER_ERROR", null);
+                    (System.nanoTime() - started) / 1_000_000, invalid ? "INVALID_RESPONSE" : "PROVIDER_ERROR", null);
         }
     }
 }

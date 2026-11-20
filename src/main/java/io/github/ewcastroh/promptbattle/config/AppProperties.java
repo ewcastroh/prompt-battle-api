@@ -58,7 +58,11 @@ public record AppProperties(
     public record Cohere(String apiKey, String embeddingModel, int embeddingDimensions, String baseUrl) {
     }
 
-    public record Commentary(String apiKey, String model) {
+    /**
+     * The commentary model, also used by the optional LLM moderation and translation. {@code timeout} is the
+     * per-call budget (SPEC §4.4: 8 s); {@code baseUrl} only changes in tests.
+     */
+    public record Commentary(String apiKey, String model, String baseUrl, Duration timeout) {
     }
 
     public record Game(int attemptsPerRound, int roundGraceSeconds, int calibrationAnchors,

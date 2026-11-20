@@ -16,6 +16,9 @@ import static org.assertj.core.api.Assertions.within;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import io.github.ewcastroh.promptbattle.ApiClient;
+import io.github.ewcastroh.promptbattle.commentary.AnthropicStubs;
+import io.github.ewcastroh.promptbattle.commentary.CommentaryPort;
+import io.github.ewcastroh.promptbattle.commentary.SpringAiCommentary;
 import io.github.ewcastroh.promptbattle.config.AppProperties;
 import io.github.ewcastroh.promptbattle.generation.BflImageGenerator;
 import io.github.ewcastroh.promptbattle.generation.FakeImageGenerator;
@@ -40,7 +43,10 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.JsonNode;
 
-/** SPEC §7.6 and §4.2 (PLAN A2 ProbeServiceTest): the probe through the real fal, BFL and Gemini adapters. */
+/**
+ * SPEC §7.6 and §4.2 (PLAN A2/A3 ProbeServiceTest): the probe through the real fal, BFL, Gemini and Anthropic
+ * (commentary) adapters.
+ */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("probe") // not "fake": the real adapters are wired, pointed at WireMock
@@ -72,6 +78,8 @@ class ProbeServiceTest {
         registry.add("app.fal.key", () -> FAL_KEY);
         registry.add("app.bfl.key", () -> BFL_KEY);
         registry.add("app.gemini.api-key", () -> GEMINI_KEY);
+        registry.add("app.commentary.api-key", () -> AnthropicStubs.KEY);
+        registry.add("app.commentary.base-url", WM::baseUrl);
         registry.add("app.image.provider-chain", () -> "fal,bfl");
         registry.add("app.image.load-split", () -> "fal,bfl");
         registry.add("app.embedding.provider-chain", () -> "gemini");
@@ -94,6 +102,8 @@ class ProbeServiceTest {
     ProviderRegistry registry;
     @Autowired
     EmbeddingService embeddings;
+    @Autowired
+    CommentaryPort commentaryPort;
     ApiClient api;
 
     @BeforeEach
@@ -112,6 +122,9 @@ class ProbeServiceTest {
         stubFalSuccess();
         stubBflWithoutCredits();
         stubGeminiTwoSlightlyDifferentVectors();
+        AnthropicStubs.stub(WM, AnthropicStubs.reply("{\"es\":\"¡Todo listo!\",\"en\":\"All set!\"}"));
+        assertThat(commentaryPort).as("the live model is preferred over the canned comments")
+                .isInstanceOf(SpringAiCommentary.class);
         double expectedDiff = DeterminismCheck.maxDiff(FIRST, SECOND);
         assertThat(expectedDiff).isGreaterThan(DeterminismCheck.THRESHOLD);
 
@@ -140,8 +153,11 @@ class ProbeServiceTest {
         assertThat(gemini.get("determinismMaxDiff").asDouble()).isCloseTo(expectedDiff, within(1e-9));
         JsonNode commentary = report.get("results").get(3);
         assertThat(commentary.get("kind").asString()).isEqualTo("COMMENTARY");
-        assertThat(commentary.get("ok").asBoolean()).isFalse();
-        assertThat(commentary.get("errorKind").asString()).isEqualTo("NOT_CONFIGURED");
+        assertThat(commentary.get("providerId").asString()).isEqualTo("anthropic");
+        assertThat(commentary.get("model").asString()).isEqualTo(props.commentary().model());
+        assertThat(commentary.get("ok").asBoolean()).isTrue();
+        assertThat(commentary.get("errorKind").isNull()).as("commentary errorKind").isTrue();
+        assertThat(commentary.get("latencyMs").asLong()).isNotNegative();
 
         // What each adapter sent: keys only to the provider APIs, one image per embedding call, no retry on 402.
         WM.verify(1, postRequestedFor(urlEqualTo("/" + props.fal().model()))
@@ -151,8 +167,12 @@ class ProbeServiceTest {
         WM.verify(2, postRequestedFor(urlEqualTo(geminiEmbed())).withHeader("x-goog-api-key", equalTo(GEMINI_KEY))
                 .withRequestBody(matchingJsonPath("$.content.parts[0].inlineData.mimeType", equalTo("image/jpeg")))
                 .withRequestBody(matchingJsonPath("$.embedContentConfig.outputDimensionality", equalTo("768"))));
+        WM.verify(1, postRequestedFor(urlEqualTo("/v1/messages"))
+                .withHeader("Authorization", equalTo("Bearer " + AnthropicStubs.KEY))
+                .withRequestBody(matchingJsonPath("$.model", equalTo(props.commentary().model()))));
 
         JsonNode providers = api.adminGet("bog", "/api/admin/providers");
+        assertThat(providers.get("commentary").get("configured").asBoolean()).isTrue();
         JsonNode embedding = providers.get("embedding").get(0);
         assertThat(embedding.get("id").asString()).isEqualTo("gemini");
         assertThat(embedding.get("configured").asBoolean()).isTrue();

@@ -87,6 +87,9 @@ app:
   commentary:
     api-key: ${ANTHROPIC_API_KEY:}
     model: ${COMMENTARY_MODEL:claude-sonnet-5-5}
+    base-url: https://api.anthropic.com
+    # Per call, for commentary, LLM moderation and translation (SPEC §4.4). No retries.
+    timeout: 8s
   game:
     attempts-per-round: ${ATTEMPTS_PER_ROUND:3}
     round-grace-seconds: ${ROUND_GRACE_SECONDS:20}

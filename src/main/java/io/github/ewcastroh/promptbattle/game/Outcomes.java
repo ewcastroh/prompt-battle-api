@@ -18,6 +18,10 @@ public final class Outcomes {
     public record Failed(FailureKind kind, String provider) implements AttemptOutcome {
     }
 
+    /** The optional LLM moderation refused the prompt before generation (SPEC §6.3 step 3). */
+    public record Moderated() implements AttemptOutcome {
+    }
+
     public sealed interface CalibrationOutcome {
     }
 

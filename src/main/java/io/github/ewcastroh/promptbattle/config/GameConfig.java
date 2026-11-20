@@ -14,7 +14,10 @@ import io.github.ewcastroh.promptbattle.game.Moderation;
 import io.github.ewcastroh.promptbattle.generation.GenerationDispatcher;
 import io.github.ewcastroh.promptbattle.generation.ImageGenerator;
 import io.github.ewcastroh.promptbattle.generation.ProviderRegistry;
-import io.github.ewcastroh.promptbattle.moderation.BlocklistModeration;
+import io.github.ewcastroh.promptbattle.moderation.Blocklist;
+import io.github.ewcastroh.promptbattle.moderation.PromptModerator;
+import io.github.ewcastroh.promptbattle.moderation.PromptPreparation;
+import io.github.ewcastroh.promptbattle.moderation.Translator;
 import io.github.ewcastroh.promptbattle.persistence.ImageStore;
 import io.github.ewcastroh.promptbattle.persistence.SnapshotCodec;
 import io.github.ewcastroh.promptbattle.persistence.SnapshotStore;
@@ -72,7 +75,25 @@ public class GameConfig {
 
     @Bean
     Moderation moderation() {
-        return new BlocklistModeration();
+        return new Blocklist();
+    }
+
+    /**
+     * The optional steps before generation. A flag without a model (no ANTHROPIC_API_KEY outside the fake
+     * profile) is logged and ignored.
+     */
+    @Bean
+    PromptPreparation promptPreparation(AppProperties props, ObjectProvider<PromptModerator> moderators,
+            ObjectProvider<Translator> translators) {
+        PromptModerator moderator = props.game().promptLlmModeration() ? moderators.getIfAvailable() : null;
+        Translator translator = props.game().promptTranslateToEn() ? translators.getIfAvailable() : null;
+        if (props.game().promptLlmModeration() && moderator == null) {
+            log.warn("PROMPT_LLM_MODERATION is on but no commentary model is configured (ANTHROPIC_API_KEY); it is off");
+        }
+        if (props.game().promptTranslateToEn() && translator == null) {
+            log.warn("PROMPT_TRANSLATE_TO_EN is on but no commentary model is configured (ANTHROPIC_API_KEY); it is off");
+        }
+        return new PromptPreparation(moderator, translator);
     }
 
     /** Image providers with an adapter (a key), their circuits and stats; the domain decides the active one. */
@@ -152,10 +173,11 @@ public class GameConfig {
     @Bean
     GameRuntime gameRuntime(AppProperties props, GenerationDispatcher dispatcher, ImageStore images,
             EmbeddingService embeddings, RunScorer scorer, ObjectProvider<CommentaryPort> commentary,
-            FallbackCommentary fallback, SnapshotStore snapshots, SnapshotCodec codec, RestoredState restored) {
+            FallbackCommentary fallback, PromptPreparation preparation, SnapshotStore snapshots, SnapshotCodec codec,
+            RestoredState restored) {
         return new GameRuntime(dispatcher, images, embeddings, scorer, commentary.getIfAvailable(() -> fallback),
-                fallback, snapshots, codec, props.tickInterval(), props.snapshotInterval(),
-                Duration.ofSeconds(props.image().timeoutSeconds()), restored.restored());
+                fallback, preparation, snapshots, codec, props.tickInterval(), props.snapshotInterval(),
+                Duration.ofSeconds(props.image().timeoutSeconds()), props.commentary().timeout(), restored.restored());
     }
 
     @Bean

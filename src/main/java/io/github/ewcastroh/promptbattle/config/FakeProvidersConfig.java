@@ -1,6 +1,7 @@
 package io.github.ewcastroh.promptbattle.config;
 
 import io.github.ewcastroh.promptbattle.generation.FakeImageGenerator;
+import io.github.ewcastroh.promptbattle.moderation.FakeLanguageModel;
 import io.github.ewcastroh.promptbattle.scoring.FakeEmbeddingProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,6 +16,12 @@ public class FakeProvidersConfig {
     FakeImageGenerator fakeImageGenerator(AppProperties props) {
         AppProperties.Fake fake = props.fake();
         return new FakeImageGenerator(fake.model(), fake.latencyMs(), fake.failureRate(), fake.maxConcurrency());
+    }
+
+    /** Offline LLM moderation and translation; used only when their flags are on. Commentary stays canned. */
+    @Bean
+    FakeLanguageModel fakeLanguageModel() {
+        return new FakeLanguageModel();
     }
 
     @Bean

@@ -17,6 +17,7 @@ import io.github.ewcastroh.promptbattle.generation.GenerationDispatcher.Dispatch
 import io.github.ewcastroh.promptbattle.generation.GenerationRequest;
 import io.github.ewcastroh.promptbattle.generation.GenerationResult;
 import io.github.ewcastroh.promptbattle.generation.ProviderRegistry;
+import io.github.ewcastroh.promptbattle.moderation.PromptPreparation;
 import io.github.ewcastroh.promptbattle.persistence.ImageStore;
 import io.github.ewcastroh.promptbattle.persistence.SnapshotCodec;
 import io.github.ewcastroh.promptbattle.persistence.SnapshotStore;
@@ -29,12 +30,16 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.SmartLifecycle;
@@ -44,13 +49,14 @@ import org.springframework.context.SmartLifecycle;
  * thread and feeds results back as engine commands. Also drives the server-side timers and the periodic
  * snapshot (SPEC §7.4), and reports circuit transitions and embedding quota usage to the domain.
  * <p>Threads: the engine thread runs commands and {@link #accept} (which only enqueues); the dispatcher
- * starts generations on virtual threads; workers (virtual threads) run calibration, scoring, commentary and
- * prefetches; the timer thread posts {@code tick} and snapshots. Nothing here blocks the engine thread.
+ * starts generations on virtual threads; workers (virtual threads) run calibration, scoring, commentary,
+ * prefetches and the optional prompt preparation; the timer thread posts {@code tick} and snapshots. Nothing
+ * here blocks the engine thread, and no reveal ever waits on an AI call: comments are written right after
+ * scoring and at {@code podium/start}, each within {@code commentaryTimeout} or replaced by a canned one.
  */
-public final class GameRuntime implements EffectSink, SmartLifecycle {
+public final class GameRuntime implements EffectSink, SmartLifecycle, AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(GameRuntime.class);
-    public static final Duration COMMENTARY_TIMEOUT = Duration.ofSeconds(8);
     /** Extra wait for a pinned job so the adapter's own timeout normally reports first. */
     static final Duration WAIT_MARGIN = Duration.ofSeconds(5);
 
@@ -61,12 +67,16 @@ public final class GameRuntime implements EffectSink, SmartLifecycle {
     private final RunScorer scorer;
     private final CommentaryPort commentary;
     private final CannedCommentary fallback;
+    private final PromptPreparation preparation;
     private final SnapshotStore snapshots;
     private final SnapshotCodec codec;
     private final Duration tickInterval;
     private final Duration snapshotInterval;
     private final Duration imageTimeout;
+    private final Duration commentaryTimeout;
     private final boolean restored;
+    /** Attempts in the optional preparation step (moderation, translation), not yet in the dispatcher. */
+    private final Set<String> preparing = ConcurrentHashMap.newKeySet();
 
     private final ExecutorService workers = Executors.newVirtualThreadPerTaskExecutor();
     private final ExecutorService snapshotWriter = Executors.newSingleThreadExecutor(
@@ -75,12 +85,15 @@ public final class GameRuntime implements EffectSink, SmartLifecycle {
             Thread.ofPlatform().name("game-timers").daemon().factory());
     private volatile GameEngine engine;
     private volatile boolean running;
+    private volatile boolean resumed;
+    private volatile boolean closed;
+    private final List<ScheduledFuture<?>> timers = new ArrayList<>();
     private volatile byte[] lastWritten;
 
     public GameRuntime(GenerationDispatcher dispatcher, ImageStore images, EmbeddingService embeddings,
-            RunScorer scorer, CommentaryPort commentary, CannedCommentary fallback, SnapshotStore snapshots,
-            SnapshotCodec codec, Duration tickInterval, Duration snapshotInterval, Duration imageTimeout,
-            boolean restored) {
+            RunScorer scorer, CommentaryPort commentary, CannedCommentary fallback, PromptPreparation preparation,
+            SnapshotStore snapshots, SnapshotCodec codec, Duration tickInterval, Duration snapshotInterval,
+            Duration imageTimeout, Duration commentaryTimeout, boolean restored) {
         this.dispatcher = dispatcher;
         this.registry = dispatcher.registry();
         this.images = images;
@@ -88,11 +101,13 @@ public final class GameRuntime implements EffectSink, SmartLifecycle {
         this.scorer = scorer;
         this.commentary = commentary;
         this.fallback = fallback;
+        this.preparation = preparation;
         this.snapshots = snapshots;
         this.codec = codec;
         this.tickInterval = tickInterval;
         this.snapshotInterval = snapshotInterval;
         this.imageTimeout = imageTimeout;
+        this.commentaryTimeout = commentaryTimeout;
         this.restored = restored;
     }
 
@@ -104,10 +119,22 @@ public final class GameRuntime implements EffectSink, SmartLifecycle {
         return imageTimeout;
     }
 
+    /** Per-call budget of a commentary call (SPEC §4.4: 8 s). */
+    public Duration commentaryTimeout() {
+        return commentaryTimeout;
+    }
+
     // ------------------------------------------------------------------ lifecycle
 
+    /**
+     * Starts (or restarts) the timers. Spring may stop and start a lifecycle bean more than once (test contexts
+     * are paused when unused), so everything here is repeatable; the restored state resumes only once.
+     */
     @Override
-    public void start() {
+    public synchronized void start() {
+        if (closed) {
+            throw new IllegalStateException("GameRuntime is closed");
+        }
         running = true;
         registry.setListener(new ProviderRegistry.Listener() {
             @Override
@@ -135,25 +162,42 @@ public final class GameRuntime implements EffectSink, SmartLifecycle {
             limiter.setListener((day, count, limit) -> engine.post(g -> g.embeddingUsage(id, day, count, limit)));
         }
         engine.run(Game::publishProviderState);
-        if (restored) {
+        if (restored && !resumed) {
+            resumed = true;
             engine.run(Game::resumeAfterRestore);
         }
-        scheduler.scheduleWithFixedDelay(() -> engine.post(Game::tick), tickInterval.toMillis(),
-                tickInterval.toMillis(), TimeUnit.MILLISECONDS);
-        scheduler.scheduleWithFixedDelay(this::periodicSnapshot, snapshotInterval.toMillis(),
-                snapshotInterval.toMillis(), TimeUnit.MILLISECONDS);
+        timers.add(scheduler.scheduleWithFixedDelay(() -> engine.post(Game::tick), tickInterval.toMillis(),
+                tickInterval.toMillis(), TimeUnit.MILLISECONDS));
+        timers.add(scheduler.scheduleWithFixedDelay(this::periodicSnapshot, snapshotInterval.toMillis(),
+                snapshotInterval.toMillis(), TimeUnit.MILLISECONDS));
     }
 
+    /** Stops the timers and writes a final snapshot. Repeatable; {@link #close()} releases the threads. */
     @Override
-    public void stop() {
+    public synchronized void stop() {
+        if (!running) {
+            return;
+        }
         running = false;
-        scheduler.shutdownNow();
+        timers.forEach(t -> t.cancel(false));
+        timers.clear();
         try {
             byte[] json = engine.execute(g -> codec.encode(g.state()));
             snapshotWriter.submit(() -> writeIfChanged(json)).get(5, TimeUnit.SECONDS);
         } catch (Exception e) {
             log.error("Final snapshot failed", e);
         }
+    }
+
+    /** Context shutdown (the bean's destroy method): stops, then closes the engine, dispatcher and workers. */
+    @Override
+    public synchronized void close() {
+        if (closed) {
+            return;
+        }
+        stop();
+        closed = true;
+        scheduler.shutdownNow();
         engine.close();
         dispatcher.close();
         workers.shutdownNow();
@@ -197,7 +241,10 @@ public final class GameRuntime implements EffectSink, SmartLifecycle {
         for (Effect effect : effects) {
             switch (effect) {
                 case Effect.GenerateAttempt g -> generate(g);
-                case Effect.CancelGeneration c -> dispatcher.cancel(c.attemptId());
+                case Effect.CancelGeneration c -> {
+                    preparing.remove(c.attemptId());
+                    dispatcher.cancel(c.attemptId());
+                }
                 case Effect.Calibrate c -> workers.execute(() -> calibrate(c));
                 case Effect.ScoreRun s -> workers.execute(() -> score(s));
                 case Effect.WriteCommentary w -> workers.execute(() -> comment(w));
@@ -224,6 +271,7 @@ public final class GameRuntime implements EffectSink, SmartLifecycle {
      * delete), then deletes the snapshot and every image. Blocks the engine briefly; reset is a rare admin action.
      */
     private void resetStorage() {
+        preparing.clear();
         dispatcher.cancelAll();
         registry.resetAll();
         embeddings.clear();
@@ -238,9 +286,40 @@ public final class GameRuntime implements EffectSink, SmartLifecycle {
         }
     }
 
+    /**
+     * Queues a player's generation. With LLM moderation or translation on, a worker runs them first (the
+     * attempt stays QUEUED meanwhile) and then queues the generation, unless the attempt was cancelled.
+     */
     private void generate(Effect.GenerateAttempt g) {
+        if (!preparation.active()) {
+            dispatch(g.attemptId(), g.prompt(), g.seed());
+            return;
+        }
         String id = g.attemptId();
-        dispatcher.submit(id, GenerationDispatcher.Target.FLEXIBLE, GenerationRequest.square(g.prompt(), g.seed()),
+        preparing.add(id);
+        workers.execute(() -> {
+            PromptPreparation.Prepared p;
+            try {
+                p = preparation.prepare(g.prompt());
+            } catch (RuntimeException e) {
+                log.warn("Prompt preparation failed ({}); generating the original prompt", e.getClass().getSimpleName());
+                p = new PromptPreparation.Prepared(false, g.prompt(), null);
+            }
+            if (!preparing.remove(id)) {
+                return; // cancelled (kick, reset) while preparing
+            }
+            if (p.blocked()) {
+                engine.post(game -> game.attemptFinished(id, new Outcomes.Moderated()));
+                return;
+            }
+            String promptEn = p.promptEn();
+            engine.post(game -> game.attemptPrepared(id, promptEn));
+            dispatch(id, p.generationPrompt(), g.seed());
+        });
+    }
+
+    private void dispatch(String id, String prompt, long seed) {
+        dispatcher.submit(id, GenerationDispatcher.Target.FLEXIBLE, GenerationRequest.square(prompt, seed),
                         provider -> engine.post(game -> game.attemptStarted(id, provider)))
                 .thenAccept(d -> {
                     Outcomes.AttemptOutcome outcome = toOutcome(d.result(), d.providerId());
@@ -329,18 +408,37 @@ public final class GameRuntime implements EffectSink, SmartLifecycle {
         engine.post(g -> g.scoringFinished(s.city(), s.roundId(), result));
     }
 
+    /**
+     * Writes the comments of one request in parallel, each within {@code commentaryTimeout}. A failure, a
+     * timeout or a filtered reply gets the canned comment of its score band (SPEC §4.4); when the model is
+     * live, those fallbacks raise {@code COMMENTARY_FALLBACK}.
+     */
     private void comment(Effect.WriteCommentary w) {
+        AtomicInteger fallbacks = new AtomicInteger();
         Map<Effect.CommentaryJob, CompletableFuture<Commentary>> futures = new LinkedHashMap<>();
         for (Effect.CommentaryJob job : w.jobs()) {
             futures.put(job, CompletableFuture.supplyAsync(() -> commentary.comment(job), workers)
-                    .orTimeout(COMMENTARY_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)
-                    .exceptionally(e -> fallback.canned(job.key(), job.score())));
+                    .orTimeout(commentaryTimeout.toMillis(), TimeUnit.MILLISECONDS)
+                    .exceptionally(e -> {
+                        Throwable cause = e instanceof java.util.concurrent.CompletionException && e.getCause() != null
+                                ? e.getCause() : e;
+                        log.warn("Commentary for {} in {} fell back to a canned comment: {}", job.key(), w.city(),
+                                cause.getClass().getSimpleName());
+                        return null;
+                    }));
         }
         Map<String, Commentary> results = new LinkedHashMap<>();
         futures.forEach((job, f) -> {
             Commentary c = f.join();
-            results.put(job.key(), c != null ? c : fallback.canned(job.key(), job.score()));
+            if (c == null) {
+                if (commentary.live()) {
+                    fallbacks.incrementAndGet();
+                }
+                c = fallback.canned(job.key(), job.score());
+            }
+            results.put(job.key(), c);
         });
-        engine.post(g -> g.commentaryFinished(w.city(), results));
+        int count = fallbacks.get();
+        engine.post(g -> g.commentaryFinished(w.city(), results, count));
     }
 }

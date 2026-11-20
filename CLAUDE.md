@@ -13,7 +13,8 @@ Specs live in the parent repo (`prompt-battle-kit`): `docs/SPEC.md`, `docs/API.m
 - `city`: `CityCatalog` (`CITIES`), `AdminTokens` (`ADMIN_TOKEN_<CODE>`), `GameRuntime` (executes effects, timers, snapshots).
 - `generation`: `ImageGenerator` port, fal/BFL/fake adapters, `GenerationDispatcher` (shared FIFO + per-provider slots + load split), `CircuitBreaker`, `ProviderRegistry` (circuits and stats; the active provider is decided in `Game`), `ProviderHttp`/`RetryPolicy`/`Deadline` (adapter HTTP).
 - `scoring`: `EmbeddingProvider` port, Gemini/Cohere/fake adapters, `EmbeddingRateLimiter` (Gemini free tier), `EmbeddingService` (cache, averaging), `RunScorer` (one provider per city run, failover re-embeds the run), `DeterminismCheck`.
-- `commentary`, `moderation`: ports with canned/blocklist implementations (A3 adds the AI ones).
+- `commentary`: `CommentaryPort`; `SpringAiCommentary` (Spring AI `ChatClient`, Anthropic, `{es,en}` structured output) is preferred when `ANTHROPIC_API_KEY` is set, `FallbackCommentary` (canned, by score band) otherwise and on any failure. `AnthropicChat` builds the shared client (no retries, 8 s per call, low effort) and turns refusals into `ModelRefusedException`.
+- `moderation`: `Blocklist` + `TextNormalizer` (sync, in `Game`); `PromptPreparation` runs the optional `LlmModerator` and `PromptTranslator` on a worker before generation (flags `PROMPT_LLM_MODERATION`, `PROMPT_TRANSLATE_TO_EN`); `FakeLanguageModel` stands in on the fake profile.
 - `persistence`: `SnapshotCodec` (Jackson 3, field access), `SnapshotStore`, `ImageStore` (`DATA_DIR`).
 - `web`, `admin`: REST controllers, ProblemDetail errors, CORS, ETag, rate limits, admin auth.
 - `config`: `AppProperties` (every env var), `ForbiddenModelsGuard`, wiring.
@@ -25,7 +26,9 @@ Specs live in the parent repo (`prompt-battle-kit`): `docs/SPEC.md`, `docs/API.m
 - Model IDs only in `application.yml` + env vars; never one listed in `src/main/resources/forbidden-models.txt`.
 - Tests never call real providers: profile `fake` (set in `src/test/resources/config/application.yml`), WireMock (`wiremock-standalone`) for adapters. The real adapters exist only outside `fake` and only for providers with a key (`ProvidersConfig`).
 - Concurrency: only the dispatcher thread starts generations; a provider slot is held until the adapter returns. Never call `GameEngine.execute` while holding a dispatcher or breaker lock; listeners only `post`.
-- Fake embeddings: a prompt with `[sim=0.83]` scores exactly 83.0 against a target generated from a prompt containing `[target]` (or any uploaded target). `[fail]`, `[unsafe]` and `[delay=ms]` drive the fake image provider.
+- Fake embeddings: a prompt with `[sim=0.83]` scores exactly 83.0 against a target generated from a prompt containing `[target]` (or any uploaded target). `[fail]`, `[unsafe]` and `[delay=ms]` drive the fake image provider. With the LLM flags on, `[llm-block]` is refused, `[llm-fail]` makes the call fail, and the translation is `"EN: " + prompt`.
+- No reveal ever waits on an AI call: comments are written after scoring and at `podium/start`; `next` uses what is there (or a canned one). A comment never changes after its step is revealed.
+- Docker: `Dockerfile` (Temurin 25, JVM as uid 10001; the entrypoint gives the root-owned volume to it). One instance only.
 - Never log API keys, player or admin tokens, or prompt text above DEBUG. Players never upload images.
 - One instance only; in-memory state with a snapshot in `DATA_DIR`. No database, Redis or broker.
 - Ask before adding a dependency. Latest stable versions, pinned; never upgrade implicitly.

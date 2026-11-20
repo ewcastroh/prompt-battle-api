@@ -283,6 +283,14 @@ public final class Game {
         }
     }
 
+    /** The prompt passed the optional pre-generation steps; {@code promptEn} is its translation (or null). */
+    public void attemptPrepared(String attemptId, String promptEn) {
+        Located loc = findAttempt(attemptId);
+        if (loc != null && loc.attempt().status == AttemptStatus.QUEUED) {
+            loc.attempt().promptEn = promptEn;
+        }
+    }
+
     /** The dispatcher started the generation on {@code provider} (it may differ from the run's provider). */
     public void attemptStarted(String attemptId, String provider) {
         Located loc = findAttempt(attemptId);
@@ -325,6 +333,11 @@ public final class Game {
                 if (run.status == RunStatus.CLOSING && (current == null || current.auto)) {
                     setEntry(run, a, now, true);
                 }
+            }
+            case Outcomes.Moderated m -> {
+                a.status = AttemptStatus.BLOCKED;
+                a.code = ErrorCode.PROMPT_BLOCKED;
+                recordBlock(city, run, city.players.get(a.playerId));
             }
             case Failed f -> {
                 a.provider = f.provider() != null ? f.provider() : a.provider;
@@ -792,13 +805,26 @@ public final class Game {
     }
 
     public void commentaryFinished(String cityCode, Map<String, Commentary> results) {
+        commentaryFinished(cityCode, results, 0);
+    }
+
+    /**
+     * Stores finished comments. {@code fallbacks} counts comments a live model failed to write (canned instead);
+     * they raise {@code COMMENTARY_FALLBACK} for the city's admins.
+     */
+    public void commentaryFinished(String cityCode, Map<String, Commentary> results, int fallbacks) {
         CityRun city = state.cities.get(cityCode);
         if (city == null) {
             return;
         }
+        if (fallbacks > 0) {
+            alert("COMMENTARY_FALLBACK", cityCode, Map.of("count", fallbacks));
+        }
         for (Map.Entry<String, Commentary> e : results.entrySet()) {
+            // putIfAbsent: a step revealed before its comment arrived already shows a canned one, and the text
+            // on the projector never changes after the reveal.
             if (city.commentaryRequested.contains(e.getKey())) {
-                city.commentary.put(e.getKey(), e.getValue());
+                city.commentary.putIfAbsent(e.getKey(), e.getValue());
             }
         }
         RoundRun run = city.currentRun();

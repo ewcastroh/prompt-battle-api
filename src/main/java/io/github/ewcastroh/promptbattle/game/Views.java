@@ -123,6 +123,15 @@ public final class Views {
     public record AlertView(String id, Instant at, String code, String city, Map<String, Object> params) {
     }
 
+    /** A city's results (CSV export): one score column per scored round, in round order. */
+    public record Results(String city, List<String> roundNames, List<ResultRow> rows) {
+    }
+
+    /** {@code rank} is null for players outside the ranking; a null round score means no entry. */
+    public record ResultRow(Integer rank, String nickname, String claimCode, double total, List<Double> roundScores,
+            boolean kicked) {
+    }
+
     // ---- providers ----
 
     /**

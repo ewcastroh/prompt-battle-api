@@ -5,7 +5,7 @@ Game server for **Prompt Battle: ¡Compila tu Imaginación!**, a live game playe
 Part of [prompt-battle-kit](https://github.com/ewcastroh/prompt-battle-kit), which holds the spec, the API contract (`docs/API.md`) and the decisions. The UI is [prompt-battle-ui](https://github.com/ewcastroh/prompt-battle-ui).
 
 ## Stack
-Java 25 · Spring Boot 4.2.0 · Maven wrapper · ZXing (QR). No database: one instance keeps the whole event in memory and snapshots it to `DATA_DIR`.
+Java 25 · Spring Boot 4.2.0 · Spring AI 2.1.0 (Anthropic) · Maven wrapper · ZXing (QR). No database: one instance keeps the whole event in memory and snapshots it to `DATA_DIR`.
 
 ## Run locally (no keys needed)
 
@@ -26,19 +26,31 @@ The `fake` profile replaces every provider: images are generated locally and sco
 
 From the parent folder, `docker compose up --build` runs the API with the UI (after the integration phase).
 
+### Docker
+
+```bash
+docker build -t prompt-battle-api .
+docker run --rm -p 8080:8080 --env-file .env -v "$PWD/data:/data" prompt-battle-api
+```
+
+The image builds the jar with Temurin 25 and runs it on the Temurin 25 JRE as an unprivileged user (uid 10001). `DATA_DIR` is `/data`, a volume. **Run exactly one container**: the game state lives in memory.
+
 ## Test
 
 ```bash
 ./mvnw -B verify
 ```
 
-Includes the state machine and its 409s, per-city isolation, attempt accounting, close and grace rules, ranking and tie-breaks, scoring, nickname rules, admin auth, the round lock, snapshot restore, CORS, ETag, the API contract shapes and a full 2 cities × 50 players simulation; and for the providers: WireMock tests of every adapter (fal, BFL, Gemini, Cohere), the circuit breaker and event-wide failover, the shared queue and its per-provider limits, the load split, embedding failover and consistency, the Gemini free-tier limiter, the determinism check and the probe. Tests never call real providers.
+Includes the state machine and its 409s, per-city isolation, attempt accounting, close and grace rules, ranking and tie-breaks, scoring, nickname rules, admin auth, the round lock, snapshot restore, CORS, ETag, the API contract shapes and a full 2 cities × 50 players simulation; and for the providers: WireMock tests of every adapter (fal, BFL, Gemini, Cohere), the circuit breaker and event-wide failover, the shared queue and its per-provider limits, the load split, embedding failover and consistency, the Gemini free-tier limiter, the determinism check and the probe; and for A3: the Anthropic commentary adapter against WireMock (request schema, images, auth, refusals, no retries, timeouts), the canned fallback in both languages, that no reveal waits on an AI call, the blocklist normalization, the LLM moderation and translation flags, the results CSV and the event reset. Tests never call real providers.
 
 ## Providers
 - **Images:** fal.ai through its queue API (`FAL_KEY`) and Black Forest Labs (`BFL_API_KEY`), same model (FLUX.2 [klein] 9B). `IMAGE_PROVIDER_CHAIN` is the failover order; with `IMAGE_LOAD_SPLIT` each job goes to the active provider and overflows to the other listed one when its slots (`FAL_MAX_CONCURRENCY`, `BFL_MAX_CONCURRENCY`) are full. A provider without a key is skipped.
 - **Failover:** 3 failures in 30 s open a provider's circuit for 60 s and switch the active provider for both cities; either admin can force a provider (`POST /api/admin/providers/active`). Safety blocks never count.
 - **Embeddings:** Gemini (`GEMINI_API_KEY`, free tier, client-side RPM/TPM/RPD limits) with Cohere as optional backup. A city run is scored with one provider; if it fails the whole run is re-embedded with the next one, or it stays `SCORING_FAILED` until an admin rescores.
-- **Probe:** `POST /api/admin/providers/probe` (spends real credits) generates one image per provider, embeds a test image twice (determinism check) and reports latency and errors.
+- **Commentary:** Claude (`ANTHROPIC_API_KEY`, `COMMENTARY_MODEL`, default `claude-sonnet-5-5`) through Spring AI. One call per podium step returns Spanish and English (`{es, en}`), 8 s per call, no retries; it is written right after scoring and at `podium/start`, so a reveal never waits. Any failure gets a canned comment for the score band (`commentary/fallback-*.txt`) and the alert `COMMENTARY_FALLBACK`. Without a key every comment is canned.
+- **Moderation:** a Spanish + English blocklist (`moderation/blocklist.txt`) checks nicknames and prompts after normalizing case, accents, leetspeak and repeated letters. Optional, with the same model: `PROMPT_LLM_MODERATION=true` checks each prompt before generation, `PROMPT_TRANSLATE_TO_EN=true` generates its English translation (shown to admins as `promptEn`).
+- **Probe:** `POST /api/admin/providers/probe` (spends real credits) generates one image per provider, embeds a test image twice (determinism check), asks for one comment and reports latency and errors.
+- **Results:** `GET /api/admin/results.csv` (own city). `POST /api/admin/event/reset` with `{"confirm":"RESET"}` deletes every city's data, the snapshot and all images.
 
 ## Configuration
 Every setting is an environment variable (see `.env.example` and `docs/SPEC.md` §11.1). Locally they are read from `./.env` (UTF-8, `KEY=value`, the `docker compose` `env_file` format); a real environment variable, as on Railway, overrides the same key in `.env`. Tests never read `.env`. Required: `ADMIN_TOKEN_<CITY>` for each city in `CITIES` (at least 24 characters, all different). The API refuses to start if a configured model ID is listed in `src/main/resources/forbidden-models.txt`.
@@ -49,4 +61,4 @@ Every setting is an environment variable (see `.env.example` and `docs/SPEC.md` 
 - Never commit secrets: this repository is public. Keys live in the hosting dashboard and GitHub Actions secrets.
 
 ## Status
-Phases A1 (game core) and A2 (real providers, failover, scoring, probe). AI commentary, moderation content, CSV export and the Dockerfile come in A3.
+Phases A1 (game core), A2 (real providers, failover, scoring, probe) and A3 (commentary, moderation, CSV export, event reset, Dockerfile). Next: the first Railway deploy (`docs/DEPLOYMENT.md` in the parent repo).

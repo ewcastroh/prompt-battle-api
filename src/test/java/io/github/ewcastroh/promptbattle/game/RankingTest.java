@@ -136,6 +136,30 @@ class RankingTest {
     }
 
     @Test
+    void aLateCommentNeverReplacesTheCannedOneShownAtTheReveal() {
+        Map<String, Double> cos = new LinkedHashMap<>();
+        List<String> tokens = new java.util.ArrayList<>();
+        for (int i = 1; i <= 6; i++) {
+            String token = fx.join(MDE, "Player" + i);
+            tokens.add(token);
+            cos.put(token, 1.0 - i / 10.0); // Player1 0.9 … Player6 0.4
+        }
+        Map<String, String> attempts = play(r1, cos);
+        game.startPodium(MDE);
+        fx.answerCommentary();
+        game.nextPodium(MDE); // #5: Player5
+        game.hideEntry(MDE, attempts.get(tokens.get(3)), true); // #4 (Player4) leaves; Player6 moves in, comment requested
+        game.nextPodium(MDE); // #4: Player6, revealed before its comment arrived
+        Views.RevealEntry fourth = game.views().stage(MDE).reveal().entries().get(1);
+        assertThat(fourth.nickname()).isEqualTo("Player6");
+        assertThat(fourth.commentary().es()).startsWith("canned-es");
+
+        fx.answerCommentary(); // the AI comment for Player6 arrives late
+        assertThat(game.views().stage(MDE).reveal().entries().get(1).commentary())
+                .as("the text on the projector never changes after the reveal").isEqualTo(fourth.commentary());
+    }
+
+    @Test
     void hidingAnUnrevealedEntryRecomputesOnlyUnrevealedSteps() {
         Map<String, Double> cos = new LinkedHashMap<>();
         String[] tokens = new String[6];

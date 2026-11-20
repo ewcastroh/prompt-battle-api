@@ -21,7 +21,20 @@
 		<!-- Latest stable WireMock (4.x is still beta); the standalone jar shades Jetty, so it can't clash with
 		     Spring Boot's dependency management. Tests only: adapters are tested against stubs, never real providers. -->
 		<wiremock.version>3.13.2</wiremock.version>
+		<spring-ai.version>2.1.0</spring-ai.version>
 	</properties>
+
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.springframework.ai</groupId>
+				<artifactId>spring-ai-bom</artifactId>
+				<version>${spring-ai.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 
 	<dependencies>
 		<dependency>
@@ -35,6 +48,17 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc</artifactId>
+		</dependency>
+		<!-- Commentary, optional LLM moderation and translation (SPEC §4.4, §5.6, §6.3): the two modules of
+		     spring-ai-starter-model-anthropic without its auto-configuration. ProvidersConfig wires the model only
+		     outside the fake profile and only when ANTHROPIC_API_KEY is set. -->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-anthropic</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-client-chat</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>com.google.zxing</groupId>

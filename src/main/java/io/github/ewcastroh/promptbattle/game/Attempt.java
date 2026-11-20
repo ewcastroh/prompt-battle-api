@@ -8,6 +8,8 @@ final class Attempt {
     String roundId;
     String city;
     String prompt;
+    /** English version used for generation (PROMPT_TRANSLATE_TO_EN, SPEC §5.6); null when not translated. */
+    String promptEn;
     AttemptStatus status;
     /** Error code for BLOCKED or FAILED attempts. */
     ErrorCode code;

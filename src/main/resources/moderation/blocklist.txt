@@ -1,3 +1,205 @@
-# Blocklist for nicknames and prompts (SPEC §6.3), Spanish and English, one term or phrase per line.
-# Matched as whole words after lowercasing and removing accents.
-# Placeholder in phase A1: the content and leetspeak/repeated-letter normalization come in phase A3.
+# Blocklist for nicknames and prompts (SPEC §6.3 step 1): Spanish (Colombia) and English, one term or phrase
+# per line. Lines starting with # are comments.
+#
+# Matching (moderation/Blocklist.java): whole words or phrases after lowercasing, removing accents and basic
+# leetspeak (4→a 3→e 1→i 0→o 5→s @→a). Each letter may be repeated ("puuuta" matches "puta"), and words of a
+# phrase may be joined by spaces, _ . - or nothing.
+#
+# Before adding a term, check its normalized form against everyday words:
+# - Accents and ñ are stripped, so "coño" would block "cono" (cone) and "año" would become "ano". Never add those.
+# - A double letter needs two letters in the text ("ass" does not block "as").
+# - Left out on purpose, because they are everyday words in Colombia: zorra (fox), perra (dog), bomba (balloon),
+#   perico (parakeet / coffee with milk), coger (to take), chimba (slang for "great"), polla, concha, cock,
+#   dick (Moby Dick).
+# The provider safety checkers and the optional LLM moderation (PROMPT_LLM_MODERATION) cover what a list can't.
+
+# --- Spanish: insults and profanity
+puta
+putas
+puto
+putos
+putica
+puticas
+putazo
+putamadre
+hijueputa
+hijueputas
+hijoeputa
+hijo de puta
+hijos de puta
+gran puta
+malparido
+malparida
+malparidos
+malparidas
+gonorrea
+gonorreas
+pirobo
+piroba
+pirobos
+pirobas
+marica
+maricas
+maricon
+maricones
+maricona
+pendejo
+pendeja
+pendejos
+pendejas
+mierda
+mierdas
+imbecil
+imbeciles
+estupido
+estupida
+idiota
+idiotas
+cabron
+cabrona
+cabrones
+culero
+culera
+
+# --- Spanish: sexual content and nudity
+culo
+culos
+culiar
+culear
+culeando
+culiando
+culiado
+verga
+vergas
+vergazo
+pene
+penes
+vagina
+vaginas
+chocha
+tetas
+teta
+tetona
+tetonas
+follar
+follando
+cojones
+porno
+pornografia
+pornografico
+pornografica
+sexo
+sexy
+desnudo
+desnuda
+desnudos
+desnudas
+desnudez
+encuerado
+encuerada
+empelota
+empeloto
+orgia
+orgias
+violar
+violacion
+violador
+prostituta
+prostitutas
+
+# --- Spanish: hate, violence, drugs, self-harm
+nazi
+nazis
+hitler
+kkk
+sudaca
+sudacas
+narco
+narcos
+pablo escobar
+cocaina
+heroina
+suicidio
+suicida
+decapitado
+decapitada
+decapitar
+cadaver
+cadaveres
+masacre
+terrorista
+terroristas
+terrorismo
+
+# --- English: insults and profanity
+fuck
+fucks
+fucking
+fucked
+fucker
+fuckers
+motherfucker
+motherfuckers
+shit
+shits
+shitty
+bullshit
+bitch
+bitches
+bastard
+bastards
+ass
+asshole
+assholes
+cunt
+cunts
+slut
+sluts
+whore
+whores
+
+# --- English: sexual content and nudity
+penis
+pussy
+boobs
+tits
+titties
+nude
+nudes
+naked
+nudity
+nsfw
+porn
+pornography
+xxx
+sex
+orgasm
+orgy
+hentai
+rape
+rapist
+hooker
+
+# --- English: hate, violence, drugs, self-harm
+nigger
+niggers
+nigga
+niggas
+faggot
+faggots
+fag
+retard
+retarded
+cocaine
+heroin
+meth
+suicide
+gore
+beheaded
+beheading
+decapitated
+corpse
+corpses
+terrorist
+terrorists
+terrorism
