@@ -18,8 +18,8 @@ public record AppProperties(
         Duration snapshotInterval,
         Duration tickInterval,
         Image image,
-        Provider fal,
-        Provider bfl,
+        Fal fal,
+        Bfl bfl,
         Embedding embedding,
         Gemini gemini,
         Cohere cohere,
@@ -30,22 +30,32 @@ public record AppProperties(
     public record Image(List<String> providerChain, List<String> loadSplit, int timeoutSeconds) {
     }
 
-    public record Provider(String key, String model, int maxConcurrency) {
+    /** fal.ai queue API (SPEC §5.2). {@code queueUrl} is the queue host; the model id is its path. */
+    public record Fal(String key, String model, int maxConcurrency, String queueUrl, Duration pollInterval) {
     }
 
-    /** {@code mode}: {@code entries} (D-013, default) or {@code eager}. */
-    public record Embedding(List<String> providerChain, String mode) {
+    /** Black Forest Labs direct API; the model id is the endpoint path under {@code baseUrl/v1}. */
+    public record Bfl(String key, String model, int maxConcurrency, String baseUrl, int safetyTolerance,
+            Duration pollInterval) {
+    }
+
+    /**
+     * {@code mode}: {@code entries} (D-013, default) or {@code eager}. {@code maxConcurrency}: embedding calls
+     * in flight per provider; {@code timeoutSeconds}: budget of one embedding call including its retry.
+     */
+    public record Embedding(List<String> providerChain, String mode, int maxConcurrency, int timeoutSeconds) {
 
         public boolean eager() {
             return "eager".equalsIgnoreCase(mode);
         }
     }
 
+    /** {@code estimatedTokens}: reserved per image in the TPM window until usageMetadata reports the real count. */
     public record Gemini(String apiKey, String embeddingModel, int embeddingDimensions, int embeddingRpm,
-            int embeddingTpm, int embeddingRpd) {
+            int embeddingTpm, int embeddingRpd, int estimatedTokens, String baseUrl) {
     }
 
-    public record Cohere(String apiKey, String embeddingModel) {
+    public record Cohere(String apiKey, String embeddingModel, int embeddingDimensions, String baseUrl) {
     }
 
     public record Commentary(String apiKey, String model) {

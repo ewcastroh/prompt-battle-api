@@ -86,7 +86,8 @@ public final class FakeImageGenerator implements ImageGenerator {
         }
     }
 
-    static byte[] render(String prompt, long seed, int width, int height) {
+    /** A deterministic JPEG for {@code (prompt, seed)}; also the probe's local test image for embeddings. */
+    public static byte[] render(String prompt, long seed, int width, int height) {
         SplittableRandom random = new SplittableRandom(seedOf(prompt, seed));
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = image.createGraphics();

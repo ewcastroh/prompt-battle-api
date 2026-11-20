@@ -62,7 +62,7 @@ class AttemptAccountingTest {
                 .containsExactly(AttemptStatus.FAILED, AttemptStatus.BLOCKED, AttemptStatus.QUEUED);
         assertThat(attempts).extracting(Views.AttemptView::code)
                 .containsExactly(ErrorCode.GENERATION_FAILED, ErrorCode.PROMPT_BLOCKED, null);
-        game.attemptStarted(queued);
+        game.attemptStarted(queued, "fake");
         assertThat(game.views().attempt(token, queued).status()).isEqualTo(AttemptStatus.GENERATING);
     }
 
@@ -71,7 +71,7 @@ class AttemptAccountingTest {
         String first = fx.attempt(token, "one");
         assertThat(fx.take(Effect.GenerateAttempt.class)).hasSize(1);
         assertCode(ErrorCode.GENERATION_IN_FLIGHT, () -> fx.attempt(token, "two"));
-        game.attemptStarted(first);
+        game.attemptStarted(first, "fake");
         assertCode(ErrorCode.GENERATION_IN_FLIGHT, () -> fx.attempt(token, "two"));
         fx.game.attemptFinished(first, new Outcomes.Generated("img", "fake", "m"));
         assertThat(fx.attempt(token, "two")).isNotBlank();

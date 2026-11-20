@@ -34,7 +34,8 @@ class SnapshotRoundTripTest {
         EventState restored = codec.decode(json);
         assertThat(new String(codec.encode(restored))).isEqualTo(new String(json));
         Game game = new Game(restored, GameFixture.settings(true), fx.clock, Moderation.NONE,
-                (k, s) -> new Commentary("es", "en"), QueuePositions.NONE, new java.util.SplittableRandom(1));
+                (k, s) -> new Commentary("es", "en"), QueuePositions.NONE, ProviderHealth.ALL_CLOSED,
+                new java.util.SplittableRandom(1));
         assertThat(game.views().players(MDE)).extracting(Views.AdminPlayer::nickname).containsExactly("Zed", "Amy");
         assertThat(game.views().stage(MDE).reveal().entries()).hasSize(1);
         assertThat(game.views().me(zed).player().nickname()).isEqualTo("Zed");
@@ -56,7 +57,8 @@ class SnapshotRoundTripTest {
 
         EventState restored = codec.decode(codec.encode(fx.state));
         Game game = new Game(restored, GameFixture.settings(true), fx.clock, Moderation.NONE,
-                (k, s) -> new Commentary("es", "en"), QueuePositions.NONE, new java.util.SplittableRandom(1));
+                (k, s) -> new Commentary("es", "en"), QueuePositions.NONE, ProviderHealth.ALL_CLOSED,
+                new java.util.SplittableRandom(1));
         game.resumeAfterRestore();
 
         Views.AttemptView attempt = game.views().attempt(ana, lost);

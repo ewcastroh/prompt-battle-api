@@ -32,7 +32,13 @@ From the parent folder, `docker compose up --build` runs the API with the UI (af
 ./mvnw -B verify
 ```
 
-Includes the state machine and its 409s, per-city isolation, attempt accounting, close and grace rules, ranking and tie-breaks, scoring, nickname rules, admin auth, the round lock, snapshot restore, CORS, ETag, the API contract shapes and a full 2 cities × 50 players simulation. Tests never call real providers.
+Includes the state machine and its 409s, per-city isolation, attempt accounting, close and grace rules, ranking and tie-breaks, scoring, nickname rules, admin auth, the round lock, snapshot restore, CORS, ETag, the API contract shapes and a full 2 cities × 50 players simulation; and for the providers: WireMock tests of every adapter (fal, BFL, Gemini, Cohere), the circuit breaker and event-wide failover, the shared queue and its per-provider limits, the load split, embedding failover and consistency, the Gemini free-tier limiter, the determinism check and the probe. Tests never call real providers.
+
+## Providers
+- **Images:** fal.ai through its queue API (`FAL_KEY`) and Black Forest Labs (`BFL_API_KEY`), same model (FLUX.2 [klein] 9B). `IMAGE_PROVIDER_CHAIN` is the failover order; with `IMAGE_LOAD_SPLIT` each job goes to the active provider and overflows to the other listed one when its slots (`FAL_MAX_CONCURRENCY`, `BFL_MAX_CONCURRENCY`) are full. A provider without a key is skipped.
+- **Failover:** 3 failures in 30 s open a provider's circuit for 60 s and switch the active provider for both cities; either admin can force a provider (`POST /api/admin/providers/active`). Safety blocks never count.
+- **Embeddings:** Gemini (`GEMINI_API_KEY`, free tier, client-side RPM/TPM/RPD limits) with Cohere as optional backup. A city run is scored with one provider; if it fails the whole run is re-embedded with the next one, or it stays `SCORING_FAILED` until an admin rescores.
+- **Probe:** `POST /api/admin/providers/probe` (spends real credits) generates one image per provider, embeds a test image twice (determinism check) and reports latency and errors.
 
 ## Configuration
 Every setting is an environment variable (see `.env.example` and `docs/SPEC.md` §11.1). Locally they are read from `./.env` (UTF-8, `KEY=value`, the `docker compose` `env_file` format); a real environment variable, as on Railway, overrides the same key in `.env`. Tests never read `.env`. Required: `ADMIN_TOKEN_<CITY>` for each city in `CITIES` (at least 24 characters, all different). The API refuses to start if a configured model ID is listed in `src/main/resources/forbidden-models.txt`.
@@ -43,4 +49,4 @@ Every setting is an environment variable (see `.env.example` and `docs/SPEC.md` 
 - Never commit secrets: this repository is public. Keys live in the hosting dashboard and GitHub Actions secrets.
 
 ## Status
-Phase A1 (game core, fake providers). Real image and embedding providers, failover and the probe come in A2; AI commentary, moderation content, CSV export and the Dockerfile in A3.
+Phases A1 (game core) and A2 (real providers, failover, scoring, probe). AI commentary, moderation content, CSV export and the Dockerfile come in A3.

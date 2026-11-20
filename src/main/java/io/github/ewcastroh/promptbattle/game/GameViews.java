@@ -28,9 +28,11 @@ import io.github.ewcastroh.promptbattle.game.Views.StageReveal;
 import io.github.ewcastroh.promptbattle.game.Views.StageRound;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -382,9 +384,21 @@ public final class GameViews {
         for (int i = state.alerts.size() - 1; i >= 0 && result.size() < 100; i--) {
             Alert a = state.alerts.get(i);
             if (since == null || a.at.isAfter(since)) {
-                result.add(new AlertView(a.id, a.at, a.code, a.city, Map.copyOf(a.params)));
+                result.add(new AlertView(a.id, a.at, a.code, a.city,
+                        Collections.unmodifiableMap(new LinkedHashMap<>(a.params))));
             }
         }
         return result;
+    }
+
+    // ------------------------------------------------------------------ providers
+
+    /** Event-wide provider state kept in the domain; circuits, slots and latency come from the adapters. */
+    public Views.ProviderState providerState() {
+        Map<String, Views.EmbeddingProviderView> embedding = new LinkedHashMap<>();
+        state.embeddingProviders.forEach((id, s) -> embedding.put(id,
+                new Views.EmbeddingProviderView(s.maxDiff, s.averaging, s.checkedAt, s.usageDay, s.usedToday)));
+        return new Views.ProviderState(state.activeImageProvider, game.settings.imageProviders(),
+                game.settings.embeddingProviders(), embedding);
     }
 }

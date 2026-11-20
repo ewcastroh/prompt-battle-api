@@ -8,6 +8,7 @@ import io.github.ewcastroh.promptbattle.game.Outcomes.Scored;
 import io.github.ewcastroh.promptbattle.persistence.SnapshotCodec;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -27,6 +28,9 @@ final class GameFixture {
     final MutableClock clock = new MutableClock(Instant.parse("2026-12-02T15:00:00Z"));
     final EventState state = new EventState();
     final Set<String> blockedWords = new HashSet<>();
+    /** Circuit state per image provider as the domain sees it (default CLOSED); tests flip it by hand. */
+    final Map<String, CircuitState> circuits = new HashMap<>();
+    final ProviderHealth health = providerId -> circuits.getOrDefault(providerId, CircuitState.CLOSED);
     final Game game;
     private final List<Effect> pending = new ArrayList<>();
     private final SnapshotCodec codec = new SnapshotCodec();
@@ -54,7 +58,7 @@ final class GameFixture {
         };
         game = new Game(state, settings, clock, moderation,
                 (key, score) -> new Commentary("canned-es " + key, "canned-en " + key), QueuePositions.NONE,
-                new SplittableRandom(42));
+                health, new SplittableRandom(42));
     }
 
     static GameSettings settings(boolean miniPodium) {
@@ -138,12 +142,12 @@ final class GameFixture {
     }
 
     void succeed(String attemptId) {
-        game.attemptStarted(attemptId);
+        game.attemptStarted(attemptId, "fake");
         game.attemptFinished(attemptId, new Generated(image(), "fake", "fake-v1"));
     }
 
     void fail(String attemptId, FailureKind kind) {
-        game.attemptStarted(attemptId);
+        game.attemptStarted(attemptId, "fake");
         game.attemptFinished(attemptId, new Failed(kind, "fake"));
     }
 

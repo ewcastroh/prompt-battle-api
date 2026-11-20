@@ -2,7 +2,7 @@ package io.github.ewcastroh.promptbattle.web;
 
 import io.github.ewcastroh.promptbattle.game.GameEngine;
 import io.github.ewcastroh.promptbattle.game.Views;
-import io.github.ewcastroh.promptbattle.generation.GenerationQueue;
+import io.github.ewcastroh.promptbattle.generation.GenerationDispatcher;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -31,10 +31,10 @@ class PlayerController {
     }
 
     private final GameEngine engine;
-    private final GenerationQueue queue;
+    private final GenerationDispatcher queue;
     private final RateLimiter limiter;
 
-    PlayerController(GameEngine engine, GenerationQueue queue, RateLimiter limiter) {
+    PlayerController(GameEngine engine, GenerationDispatcher queue, RateLimiter limiter) {
         this.engine = engine;
         this.queue = queue;
         this.limiter = limiter;

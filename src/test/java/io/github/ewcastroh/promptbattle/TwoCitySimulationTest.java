@@ -8,6 +8,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import io.github.ewcastroh.promptbattle.generation.FakeImageGenerator;
+import io.github.ewcastroh.promptbattle.generation.ProviderRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +32,8 @@ class TwoCitySimulationTest {
 
     @Autowired
     MockMvc mvc;
+    @Autowired
+    ProviderRegistry providers;
     ApiClient api;
 
     /** One simulated player and the score (in tenths) they should get per scored round (0 = no entry). */
@@ -92,6 +96,9 @@ class TwoCitySimulationTest {
             if (p.index() == 7) {
                 api.attempt(p.token(), "[fail] provider error");
                 api.awaitIdle(city);
+                // One deliberate failure per round and city: heal the single fake provider's circuit so they
+                // don't add up to 3 within 30 s (FailoverTest covers the breaker itself).
+                providers.reset(FakeImageGenerator.ID);
             }
             String prompt = switch (p.index() % 4) {
                 case 0 -> sim(tenths, "chosen first try");

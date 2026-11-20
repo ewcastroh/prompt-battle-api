@@ -76,9 +76,9 @@ class AdminRoundController {
         if (requested != null && (requested < 0 || requested > RoundInput.SEED_MAX)) {
             throw GameException.validation("seed");
         }
-        String provider = engine.execute(g -> g.activeImageProvider());
+        String provider = engine.execute(g -> g.pinnedImageProvider());
         if (provider == null) {
-            throw new GameException(ErrorCode.PROVIDER_UNAVAILABLE, "No image provider available");
+            throw new GameException(ErrorCode.PROVIDER_UNAVAILABLE, "No healthy image provider");
         }
         long seed = requested != null ? requested : engine.execute(g -> g.randomSeed());
         GenerationResult result = runtime.generateAndWait(provider, GenerationRequest.square(prompt, seed));

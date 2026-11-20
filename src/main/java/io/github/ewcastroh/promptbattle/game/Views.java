@@ -122,4 +122,19 @@ public final class Views {
 
     public record AlertView(String id, Instant at, String code, String city, Map<String, Object> params) {
     }
+
+    // ---- providers ----
+
+    /**
+     * @param imageChain     configured image providers in failover order
+     * @param embeddingChain configured embedding providers in failover order
+     * @param embedding      provider id → persisted determinism and daily usage (only providers seen so far)
+     */
+    public record ProviderState(String activeImageProvider, List<String> imageChain, List<String> embeddingChain,
+            Map<String, EmbeddingProviderView> embedding) {
+    }
+
+    public record EmbeddingProviderView(Double maxDiff, boolean averaging, Instant checkedAt, String usageDay,
+            int usedToday) {
+    }
 }

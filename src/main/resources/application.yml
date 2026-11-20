@@ -56,13 +56,20 @@ app:
     key: ${FAL_KEY:}
     model: ${FAL_MODEL:fal-ai/flux-2/klein/9b}
     max-concurrency: ${FAL_MAX_CONCURRENCY:10}
+    queue-url: https://queue.fal.run
+    poll-interval: 500ms
   bfl:
     key: ${BFL_API_KEY:}
     model: ${BFL_MODEL:flux-2-klein-9b}
     max-concurrency: ${BFL_MAX_CONCURRENCY:24}
+    base-url: https://api.bfl.ai
+    safety-tolerance: 2
+    poll-interval: 500ms
   embedding:
     provider-chain: ${EMBEDDING_PROVIDER_CHAIN:gemini,cohere}
     mode: ${EMBEDDING_MODE:entries}
+    max-concurrency: 8
+    timeout-seconds: 20
   gemini:
     api-key: ${GEMINI_API_KEY:}
     embedding-model: ${GEMINI_EMBEDDING_MODEL:gemini-embedding-2}
@@ -70,9 +77,13 @@ app:
     embedding-rpm: ${GEMINI_EMBEDDING_RPM:90}
     embedding-tpm: ${GEMINI_EMBEDDING_TPM:27000}
     embedding-rpd: ${GEMINI_EMBEDDING_RPD:1000}
+    estimated-tokens: 267
+    base-url: https://generativelanguage.googleapis.com
   cohere:
     api-key: ${COHERE_API_KEY:}
     embedding-model: ${COHERE_EMBEDDING_MODEL:embed-v4.0}
+    embedding-dimensions: 1024
+    base-url: https://api.cohere.com
   commentary:
     api-key: ${ANTHROPIC_API_KEY:}
     model: ${COMMENTARY_MODEL:claude-sonnet-5-5}

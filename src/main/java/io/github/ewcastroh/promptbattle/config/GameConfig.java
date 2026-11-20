@@ -1,5 +1,6 @@
 package io.github.ewcastroh.promptbattle.config;
 
+import io.github.ewcastroh.promptbattle.admin.ProbeService;
 import io.github.ewcastroh.promptbattle.city.AdminTokens;
 import io.github.ewcastroh.promptbattle.city.CityCatalog;
 import io.github.ewcastroh.promptbattle.city.GameRuntime;
@@ -10,8 +11,9 @@ import io.github.ewcastroh.promptbattle.game.Game;
 import io.github.ewcastroh.promptbattle.game.GameEngine;
 import io.github.ewcastroh.promptbattle.game.GameSettings;
 import io.github.ewcastroh.promptbattle.game.Moderation;
-import io.github.ewcastroh.promptbattle.generation.GenerationQueue;
+import io.github.ewcastroh.promptbattle.generation.GenerationDispatcher;
 import io.github.ewcastroh.promptbattle.generation.ImageGenerator;
+import io.github.ewcastroh.promptbattle.generation.ProviderRegistry;
 import io.github.ewcastroh.promptbattle.moderation.BlocklistModeration;
 import io.github.ewcastroh.promptbattle.persistence.ImageStore;
 import io.github.ewcastroh.promptbattle.persistence.SnapshotCodec;
@@ -73,19 +75,27 @@ public class GameConfig {
         return new BlocklistModeration();
     }
 
+    /** Image providers with an adapter (a key), their circuits and stats; the domain decides the active one. */
+    @Bean
+    ProviderRegistry providerRegistry(List<ImageGenerator> generators, AppProperties props, Clock clock) {
+        return new ProviderRegistry(generators, props.image().providerChain(), props.image().loadSplit(), clock);
+    }
+
+    /** The shared FIFO and per-provider limits. Closed by {@link GameRuntime#stop()}. */
     @Bean(destroyMethod = "")
-    GenerationQueue generationQueue(List<ImageGenerator> generators) {
-        return new GenerationQueue(generators);
+    GenerationDispatcher generationDispatcher(ProviderRegistry registry) {
+        return new GenerationDispatcher(registry);
     }
 
     @Bean
-    EmbeddingService embeddingService(List<EmbeddingProvider> providers, ImageStore images) {
-        return new EmbeddingService(providers, images);
+    EmbeddingService embeddingService(List<EmbeddingProvider> providers, ImageStore images, AppProperties props,
+            Clock clock) {
+        return new EmbeddingService(providers, images, props.embedding().maxConcurrency(), clock);
     }
 
     @Bean
-    RunScorer runScorer(EmbeddingService embeddings) {
-        return new RunScorer(embeddings);
+    RunScorer runScorer(EmbeddingService embeddings, GameSettings settings) {
+        return new RunScorer(embeddings, settings.embeddingProviders());
     }
 
     /** Providers of the chain that have an adapter, in chain order. */
@@ -101,11 +111,11 @@ public class GameConfig {
     }
 
     @Bean
-    GameSettings gameSettings(AppProperties props, GenerationQueue queue, EmbeddingService embeddings) {
+    GameSettings gameSettings(AppProperties props, ProviderRegistry registry, EmbeddingService embeddings) {
         AppProperties.Game game = props.game();
         List<String> prompts = game.calibrationPrompts();
         int anchors = Math.max(0, Math.min(game.calibrationAnchors(), prompts.size()));
-        List<String> images = configured(props.image().providerChain(), List.copyOf(queue.generators().keySet()));
+        List<String> images = registry.chain();
         List<String> embeddingIds = configured(props.embedding().providerChain(), embeddings.providerIds());
         if (images.isEmpty()) {
             log.warn("No image provider of IMAGE_PROVIDER_CHAIN has an adapter; rounds cannot start");
@@ -134,17 +144,26 @@ public class GameConfig {
 
     @Bean
     Game game(RestoredState restored, GameSettings settings, Clock clock, Moderation moderation,
-            FallbackCommentary fallback, GenerationQueue queue) {
-        return new Game(restored.state(), settings, clock, moderation, fallback, queue, new SecureRandom());
+            FallbackCommentary fallback, GenerationDispatcher dispatcher, ProviderRegistry registry) {
+        return new Game(restored.state(), settings, clock, moderation, fallback, dispatcher, registry,
+                new SecureRandom());
     }
 
     @Bean
-    GameRuntime gameRuntime(AppProperties props, GenerationQueue queue, ImageStore images,
+    GameRuntime gameRuntime(AppProperties props, GenerationDispatcher dispatcher, ImageStore images,
             EmbeddingService embeddings, RunScorer scorer, ObjectProvider<CommentaryPort> commentary,
             FallbackCommentary fallback, SnapshotStore snapshots, SnapshotCodec codec, RestoredState restored) {
-        return new GameRuntime(queue, images, embeddings, scorer, commentary.getIfAvailable(() -> fallback),
+        return new GameRuntime(dispatcher, images, embeddings, scorer, commentary.getIfAvailable(() -> fallback),
                 fallback, snapshots, codec, props.tickInterval(), props.snapshotInterval(),
                 Duration.ofSeconds(props.image().timeoutSeconds()), restored.restored());
+    }
+
+    @Bean
+    ProbeService probeService(GameRuntime runtime, ProviderRegistry registry, EmbeddingService embeddings,
+            ObjectProvider<CommentaryPort> commentary, FallbackCommentary fallback, AppProperties props,
+            ImageStore images, GameEngine engine, Clock clock) {
+        return new ProbeService(runtime, registry, embeddings, commentary.getIfAvailable(() -> fallback),
+                props.commentary().model(), images, engine, clock);
     }
 
     @Bean(destroyMethod = "")

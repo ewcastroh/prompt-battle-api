@@ -57,7 +57,7 @@ class CloseAndGraceTest {
     void generationFinishingWithinGraceCountsAndScoringStartsWhenIdle() {
         String late = fx.join(MDE, "Late");
         String id = fx.attempt(late, "slow");
-        game.attemptStarted(id);
+        game.attemptStarted(id, "fake");
         game.closeRound(MDE, round);
         assertThat(fx.run(MDE, round).status).isEqualTo(RunStatus.CLOSING);
         assertThat(fx.take(Effect.ScoreRun.class)).isEmpty();

@@ -48,18 +48,20 @@ public final class Game {
     private final Moderation moderation;
     final CannedCommentary canned;
     final QueuePositions queue;
+    private final ProviderHealth health;
     private final RandomGenerator random;
     private final List<Effect> effects = new ArrayList<>();
     private final GameViews views;
 
     public Game(EventState state, GameSettings settings, Clock clock, Moderation moderation,
-            CannedCommentary canned, QueuePositions queue, RandomGenerator random) {
+            CannedCommentary canned, QueuePositions queue, ProviderHealth health, RandomGenerator random) {
         this.state = state;
         this.settings = settings;
         this.clock = clock;
         this.moderation = moderation;
         this.canned = canned;
         this.queue = queue;
+        this.health = health;
         this.random = random;
         this.views = new GameViews(this);
         if (state.activeImageProvider == null || !settings.imageProviders().contains(state.activeImageProvider)) {
@@ -266,7 +268,7 @@ public final class Game {
         a.provider = run.imageProvider;
         a.createdAt = now();
         run.attempts.put(a.id, a);
-        emit(new Effect.GenerateAttempt(a.id, run.imageProvider, prompt, d.seed));
+        emit(new Effect.GenerateAttempt(a.id, prompt, d.seed));
         return a.id;
     }
 
@@ -281,10 +283,14 @@ public final class Game {
         }
     }
 
-    public void attemptStarted(String attemptId) {
+    /** The dispatcher started the generation on {@code provider} (it may differ from the run's provider). */
+    public void attemptStarted(String attemptId, String provider) {
         Located loc = findAttempt(attemptId);
         if (loc != null && loc.attempt().status == AttemptStatus.QUEUED) {
             loc.attempt().status = AttemptStatus.GENERATING;
+            if (provider != null) {
+                loc.attempt().provider = provider;
+            }
         }
     }
 
@@ -503,7 +509,7 @@ public final class Game {
             c.status = CalibrationStatus.NOT_REQUIRED;
             return;
         }
-        String provider = state.activeImageProvider;
+        String provider = pinnedImageProvider();
         if (provider == null) {
             c.status = CalibrationStatus.FAILED;
             alert("CALIBRATION_FAILED", null, Map.of("roundId", d.id));
@@ -551,8 +557,8 @@ public final class Game {
             throw new GameException(ErrorCode.ROUND_NOT_READY, "Calibration not ready",
                     Map.of("calibration", d.calibration.status.name()));
         }
-        if (state.activeImageProvider == null) {
-            throw new GameException(ErrorCode.PROVIDER_UNAVAILABLE, "No image provider available");
+        if (state.activeImageProvider == null || !imageProviderAvailable()) {
+            throw new GameException(ErrorCode.PROVIDER_UNAVAILABLE, "No healthy image provider");
         }
         Instant now = now();
         RoundRun run = new RoundRun(roundId, city.code);
@@ -567,6 +573,13 @@ public final class Game {
         city.miniPodium = null;
         city.practiceGallery = null;
         d.locked = true;
+        if (d.scored && run.embeddingProvider != null) {
+            // Embed the shared target and anchors early (cached per provider, so the other city reuses them).
+            emit(new Effect.PrefetchEmbedding(d.targetImageId, run.embeddingProvider));
+            for (Calibration.Anchor a : d.calibration.anchors) {
+                emit(new Effect.PrefetchEmbedding(a.imageId, run.embeddingProvider));
+            }
+        }
         snapshot();
     }
 
@@ -675,6 +688,15 @@ public final class Game {
         switch (outcome) {
             case Scored s -> {
                 double floor = ScoreCalculator.floor(s.anchorCos());
+                String from = run.embeddingProvider;
+                if (from != null && !from.equals(s.embeddingProvider())) {
+                    // The whole run was re-embedded with the next provider (SPEC §4.3).
+                    Map<String, Object> params = new LinkedHashMap<>();
+                    params.put("from", from);
+                    params.put("to", s.embeddingProvider());
+                    params.put("roundId", roundId);
+                    alert("EMBEDDING_FAILOVER", city.code, params);
+                }
                 run.embeddingProvider = s.embeddingProvider();
                 run.anchorCos = new ArrayList<>(s.anchorCos());
                 run.floor = floor;
@@ -992,6 +1014,166 @@ public final class Game {
         throw new GameException(ErrorCode.ENTRY_NOT_FOUND, "Unknown entry " + entryId);
     }
 
+    // ------------------------------------------------------------------ image providers (event-wide, SPEC §5.4)
+
+    /** True when some configured image provider's circuit is not open (else PROVIDER_UNAVAILABLE). */
+    public boolean imageProviderAvailable() {
+        for (String p : settings.imageProviders()) {
+            if (health.circuit(p) != CircuitState.OPEN) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The provider for a pinned job (target preview, calibration anchors): the active one unless its circuit is
+     * open, else the first chain provider whose circuit isn't; null when every circuit is open.
+     */
+    public String pinnedImageProvider() {
+        String active = state.activeImageProvider;
+        if (active != null && health.circuit(active) != CircuitState.OPEN) {
+            return active;
+        }
+        for (String p : settings.imageProviders()) {
+            if (health.circuit(p) != CircuitState.OPEN) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    /** First configured provider in chain order whose circuit is closed, other than {@code except}. */
+    private String firstClosedProvider(String except) {
+        for (String p : settings.imageProviders()) {
+            if (!p.equals(except) && health.circuit(p) == CircuitState.CLOSED) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * A circuit opened (3 failures in 30 s). If it was the active provider, every open run switches to the
+     * next healthy provider of the chain. Without a healthy one the active provider stays, and queued
+     * generations wait for a half-open trial.
+     */
+    public void imageCircuitOpened(String providerId) {
+        alert("CIRCUIT_OPEN", null, Map.of("providerId", providerId));
+        // The event arrives asynchronously: if the circuit already closed again (a forced switch or an event
+        // reset in between), switching now would undo that.
+        if (providerId.equals(state.activeImageProvider) && health.circuit(providerId) != CircuitState.CLOSED) {
+            String next = firstClosedProvider(providerId);
+            if (next != null) {
+                switchImageProvider(next, false);
+                alert("PROVIDER_SWITCHED", null, switched(providerId, next));
+            }
+        }
+    }
+
+    /**
+     * A circuit closed again. The active provider changes only if it is itself unhealthy: there is no
+     * automatic fail-back (D-023); a recovered provider takes load-split overflow, and an admin can force it.
+     */
+    public void imageCircuitClosed(String providerId) {
+        alert("CIRCUIT_CLOSED", null, Map.of("providerId", providerId));
+        String active = state.activeImageProvider;
+        if (active == null || health.circuit(active) != CircuitState.CLOSED) {
+            String next = firstClosedProvider(null);
+            if (next != null && !next.equals(active)) {
+                switchImageProvider(next, false);
+                alert("PROVIDER_SWITCHED", null, switched(active, next));
+            }
+        }
+    }
+
+    /** Either admin forces the active provider; it also closes that provider's circuit (manual override). */
+    public void forceImageProvider(String providerId, String byCity) {
+        if (providerId == null || !settings.imageProviders().contains(providerId)) {
+            throw new GameException(ErrorCode.PROVIDER_NOT_FOUND, "Unknown or unconfigured image provider",
+                    Map.of("providerId", String.valueOf(providerId)));
+        }
+        switchImageProvider(providerId, true);
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("providerId", providerId);
+        params.put("byCity", byCity);
+        alert("PROVIDER_FORCED", null, params);
+    }
+
+    private static Map<String, Object> switched(String from, String to) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("from", from);
+        params.put("to", to);
+        return params;
+    }
+
+    /** The active provider is event-wide: every open (or closing) run of every city follows it. */
+    private void switchImageProvider(String to, boolean resetCircuit) {
+        state.activeImageProvider = to;
+        for (CityRun city : state.cities.values()) {
+            RoundRun run = city.currentRun();
+            if (run != null && (run.status == RunStatus.OPEN || run.status == RunStatus.CLOSING)) {
+                run.imageProvider = to;
+            }
+        }
+        emit(new Effect.ActiveImageProvider(to, resetCircuit));
+        snapshot();
+    }
+
+    /** Hands the persisted provider state to the adapters (startup and restore). */
+    public void publishProviderState() {
+        if (state.activeImageProvider != null) {
+            emit(new Effect.ActiveImageProvider(state.activeImageProvider, false));
+        }
+        state.embeddingProviders.forEach((id, s) -> emit(new Effect.EmbeddingAveraging(id, s.averaging)));
+    }
+
+    // ------------------------------------------------------------------ embedding providers (event-wide)
+
+    private EmbeddingProviderState embeddingState(String providerId) {
+        return state.embeddingProviders.computeIfAbsent(providerId, k -> new EmbeddingProviderState());
+    }
+
+    /**
+     * Determinism probe result (SPEC §4.2): with {@code averaging}, scoring averages two embedding calls per
+     * image. The latest probe decides; the switch raises DETERMINISM_AVERAGING when it turns on.
+     */
+    public void determinismChecked(String providerId, double maxDiff, boolean averaging) {
+        EmbeddingProviderState s = embeddingState(providerId);
+        boolean turnedOn = averaging && !s.averaging;
+        s.maxDiff = maxDiff;
+        s.averaging = averaging;
+        s.checkedAt = now();
+        if (turnedOn) {
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("providerId", providerId);
+            params.put("maxDiff", maxDiff);
+            alert("DETERMINISM_AVERAGING", null, params);
+        }
+        emit(new Effect.EmbeddingAveraging(providerId, averaging));
+    }
+
+    /**
+     * Client-side daily request count of a rate-limited embedding provider (D-013), kept in the snapshot.
+     * Raises EMBEDDING_QUOTA_LOW once a day at 80 % of the limit.
+     */
+    public void embeddingUsage(String providerId, String day, int used, int limit) {
+        EmbeddingProviderState s = embeddingState(providerId);
+        if (!day.equals(s.usageDay)) {
+            s.usageDay = day;
+            s.usedToday = used;
+        } else {
+            s.usedToday = Math.max(s.usedToday, used); // reports from parallel calls may arrive out of order
+        }
+        if (limit > 0 && (long) s.usedToday * 5 >= (long) limit * 4 && !day.equals(s.quotaAlertDay)) {
+            s.quotaAlertDay = day;
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("used", s.usedToday);
+            params.put("limit", limit);
+            alert("EMBEDDING_QUOTA_LOW", null, params);
+        }
+    }
+
     // ------------------------------------------------------------------ shared controls
 
     public void resetEvent(String confirm) {
@@ -1001,6 +1183,8 @@ public final class Game {
         state.rounds.clear();
         state.previews.clear();
         state.alerts.clear();
+        // Provider state survives the reset (D-023), but the quota alert it just deleted must be able to fire again.
+        state.embeddingProviders.values().forEach(s -> s.quotaAlertDay = null);
         state.nextRoundPosition = 1;
         for (Map.Entry<String, CityRun> e : state.cities.entrySet()) {
             e.setValue(new CityRun(e.getKey(), e.getValue().name));
