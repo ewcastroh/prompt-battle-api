@@ -38,7 +38,7 @@ import tools.jackson.databind.json.JsonMapper;
 class AdminRoundController {
 
     static final long MAX_UPLOAD = 10L * 1024 * 1024;
-    static final Set<String> UPLOAD_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
+    static final Set<String> UPLOAD_TYPES = Set.of("image/jpeg", "image/png");
 
     record TargetRequest(String prompt, Long seed) {
     }
@@ -162,7 +162,7 @@ class AdminRoundController {
         }
     }
 
-    /** JPEG, PNG or WebP up to 10 MB, center-cropped to a 1024² JPEG (D-020 #8). */
+    /** JPEG or PNG up to 10 MB, center-cropped to a 1024² JPEG (D-020 #8, D-022). */
     private String storeUpload(MultipartFile file) {
         if (file == null || file.isEmpty() || file.getSize() > MAX_UPLOAD || file.getContentType() == null
                 || !UPLOAD_TYPES.contains(file.getContentType().toLowerCase())) {

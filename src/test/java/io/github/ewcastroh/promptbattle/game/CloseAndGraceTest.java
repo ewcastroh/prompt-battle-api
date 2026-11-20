@@ -76,14 +76,34 @@ class CloseAndGraceTest {
     }
 
     @Test
-    void graceResultDoesNotReplaceAnExistingEntry() {
+    void graceResultReplacesAnAutoEntryAsTheLastSuccessfulAttempt() {
         String p = fx.join(MDE, "Ana");
         String first = fx.done(p, "first");
         String slow = fx.attempt(p, "slow");
         game.closeRound(MDE, round);
         assertThat(entryOf(p).attemptId).isEqualTo(first);
+        assertThat(entryOf(p).auto).isTrue();
+
+        fx.clock.advanceSeconds(3);
         game.attemptFinished(slow, new Generated("img-slow", "fake", "m"));
-        assertThat(entryOf(p).attemptId).isEqualTo(first);
+
+        assertThat(entryOf(p).attemptId).as("D-022: the last successful attempt wins").isEqualTo(slow);
+        assertThat(entryOf(p).auto).isTrue();
+        assertThat(entryOf(p).selectedAt).isEqualTo(fx.clock.instant());
+        assertThat(fx.take(Effect.ScoreRun.class)).singleElement()
+                .satisfies(s -> assertThat(s.entryImageIds()).containsOnlyKeys(slow));
+    }
+
+    @Test
+    void graceResultNeverReplacesAnEntryThePlayerChose() {
+        String p = fx.join(MDE, "Ana");
+        String chosen = fx.done(p, "chosen");
+        game.selectEntry(p, chosen);
+        String slow = fx.attempt(p, "slow");
+        game.closeRound(MDE, round);
+        game.attemptFinished(slow, new Generated("img-slow", "fake", "m"));
+        assertThat(entryOf(p).attemptId).isEqualTo(chosen);
+        assertThat(entryOf(p).auto).isFalse();
     }
 
     @Test

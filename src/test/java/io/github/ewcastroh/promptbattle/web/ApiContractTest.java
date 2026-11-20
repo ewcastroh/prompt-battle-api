@@ -215,6 +215,9 @@ class ApiContractTest {
         MockMultipartFile text = new MockMultipartFile("target", "t.txt", "text/plain", "hello".getBytes());
         assertThat(api.call(api.admin(multipart("/api/admin/rounds").file(roundPart).file(text), "mde"), 400)
                 .get("code").asString()).isEqualTo("UPLOAD_INVALID");
+        MockMultipartFile webp = new MockMultipartFile("target", "t.webp", "image/webp", png.toByteArray());
+        assertThat(api.call(api.admin(multipart("/api/admin/rounds").file(roundPart).file(webp), "mde"), 400)
+                .get("code").asString()).as("D-022: JPEG and PNG only").isEqualTo("UPLOAD_INVALID");
         MockMultipartFile fakeJpeg = new MockMultipartFile("target", "t.jpg", "image/jpeg", "not an image".getBytes());
         assertThat(api.call(api.admin(multipart("/api/admin/rounds").file(roundPart).file(fakeJpeg), "mde"), 400)
                 .get("code").asString()).isEqualTo("UPLOAD_INVALID");

@@ -6,7 +6,7 @@ Specs live in the parent repo (`prompt-battle-kit`): `docs/SPEC.md`, `docs/API.m
 ## Commands
 - Full verification (what CI runs): `./mvnw -B verify`
 - One test class: `./mvnw test -Dtest=RankingTest`
-- Run locally, offline: `SPRING_PROFILES_ACTIVE=fake ADMIN_TOKEN_MDE=<24+ chars> ADMIN_TOKEN_BOG=<24+ chars> ./mvnw spring-boot:run` → http://localhost:8080/actuator/health
+- Run locally, offline: `cp .env.example .env`, set both `ADMIN_TOKEN_*` (24+ chars), then `./mvnw spring-boot:run` → http://localhost:8080/actuator/health. Config is read from `./.env` (`DotenvPropertySourceLoader` via `spring.config.import`); never export variables, never read or commit `.env`. Real env vars override it; surefire points `DOTENV_FILE` away so tests ignore it.
 
 ## Layout (`io.github.ewcastroh.promptbattle`)
 - `game`: pure domain, **no Spring imports**. `Game` holds every rule and mutation; `GameEngine` runs commands and reads one at a time on one thread; commands return `Effect`s for async work. `GameViews` builds the API read models (`Views`).

@@ -314,7 +314,9 @@ public final class Game {
                 if (settings.eagerEmbeddings()) {
                     prefetch(run, a);
                 }
-                if (run.status == RunStatus.CLOSING && !run.entries.containsKey(a.playerId)) {
+                // D-022: during grace the last successful attempt replaces an automatic entry, never a chosen one.
+                Entry current = run.entries.get(a.playerId);
+                if (run.status == RunStatus.CLOSING && (current == null || current.auto)) {
                     setEntry(run, a, now, true);
                 }
             }

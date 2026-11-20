@@ -3,6 +3,13 @@
 spring:
   application:
     name: prompt-battle-api
+  config:
+    # Local runs read KEY=value pairs from ./.env (the working directory), so nothing has to be exported.
+    # Real environment variables still win. Tests point DOTENV_FILE elsewhere so a developer's .env never leaks in.
+    import: optional:file:${DOTENV_FILE:.env}[.env]
+  profiles:
+    # SPRING_PROFILES_ACTIVE written in .env is a plain property there, so map it explicitly.
+    active: ${SPRING_PROFILES_ACTIVE:}
   servlet:
     multipart:
       max-file-size: 10MB
