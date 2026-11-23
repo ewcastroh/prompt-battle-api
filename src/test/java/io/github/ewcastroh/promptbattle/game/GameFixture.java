@@ -31,6 +31,20 @@ final class GameFixture {
     /** Circuit state per image provider as the domain sees it (default CLOSED); tests flip it by hand. */
     final Map<String, CircuitState> circuits = new HashMap<>();
     final ProviderHealth health = providerId -> circuits.getOrDefault(providerId, CircuitState.CLOSED);
+    /** The shared FIFO as the domain sees it: positions of waiting jobs and jobs already handed to a provider. */
+    final Map<String, Integer> queuePositions = new HashMap<>();
+    final Set<String> startedJobs = new HashSet<>();
+    final QueuePositions queue = new QueuePositions() {
+        @Override
+        public Integer positionOf(String attemptId) {
+            return queuePositions.get(attemptId);
+        }
+
+        @Override
+        public boolean started(String attemptId) {
+            return startedJobs.contains(attemptId);
+        }
+    };
     final Game game;
     private final List<Effect> pending = new ArrayList<>();
     private final SnapshotCodec codec = new SnapshotCodec();
@@ -57,7 +71,7 @@ final class GameFixture {
             }
         };
         game = new Game(state, settings, clock, moderation,
-                (key, score) -> new Commentary("canned-es " + key, "canned-en " + key), QueuePositions.NONE,
+                (key, score) -> new Commentary("canned-es " + key, "canned-en " + key), queue,
                 health, new SplittableRandom(42));
     }
 

@@ -28,15 +28,23 @@ import javax.imageio.stream.MemoryCacheImageOutputStream;
 public final class FakeImageGenerator implements ImageGenerator {
 
     public static final String ID = "fake";
+    /** The second fake provider (BFL's stand-in in load-split runs, PLAN I2). */
+    public static final String SECOND_ID = "fake2";
     public static final String COMMENT_PREFIX = "pb-fake:";
     private static final Pattern DELAY = Pattern.compile("\\[delay=(\\d{1,6})]");
 
+    private final String id;
     private final String model;
     private final long latencyMs;
     private final double failureRate;
     private final int maxConcurrency;
 
     public FakeImageGenerator(String model, long latencyMs, double failureRate, int maxConcurrency) {
+        this(ID, model, latencyMs, failureRate, maxConcurrency);
+    }
+
+    public FakeImageGenerator(String id, String model, long latencyMs, double failureRate, int maxConcurrency) {
+        this.id = id;
         this.model = model;
         this.latencyMs = latencyMs;
         this.failureRate = failureRate;
@@ -45,7 +53,7 @@ public final class FakeImageGenerator implements ImageGenerator {
 
     @Override
     public String providerId() {
-        return ID;
+        return id;
     }
 
     @Override

@@ -130,7 +130,9 @@ class TwoCitySimulationTest {
         assertThat(me7.get("final").isNull()).isTrue();
 
         api.adminPost(city, "/api/admin/rounds/" + roundId + "/close");
+        assertNothingRevealed(city, "while closing");
         api.awaitPhase(city, "ROUND_SCORED");
+        assertNothingRevealed(city, "scored, before any reveal");
 
         // Every entry has exactly the expected score.
         JsonNode entries = api.adminGet(city, "/api/admin/entries?roundId=" + roundId);
@@ -162,8 +164,19 @@ class TwoCitySimulationTest {
         return sorted.subList(0, 5);
     }
 
+    /** SPEC §14.1-4: scores may exist, but the stage shows no player's image or nickname until a reveal. */
+    private void assertNothingRevealed(String city, String when) {
+        String text = api.stageText(city);
+        assertThat(text.split("/img/", -1)).as("at most the target image on the stage " + when)
+                .hasSizeLessThanOrEqualTo(2);
+        assertThat(text).as("no nickname on the stage " + when).doesNotContain(city + "_p");
+        JsonNode reveal = api.stage(city).get("reveal");
+        assertThat(reveal == null || reveal.isNull() || reveal.get("entries").isEmpty()).as(when).isTrue();
+    }
+
     private void miniPodium(String city, List<SimPlayer> players, String other) {
         api.adminPost(city, "/api/admin/mini-podium/start");
+        assertNothingRevealed(city, "at mini-podium step 0");
         List<SimPlayer> top = expectedRoundTop(players, 0, 3);
         for (int step = 1; step <= 3; step++) {
             JsonNode reveal = api.adminPost(city, "/api/admin/mini-podium/next").get("miniPodium");

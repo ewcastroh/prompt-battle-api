@@ -100,8 +100,15 @@ public final class GameViews {
     }
 
     private AttemptView attempt(Attempt a) {
-        Integer position = a.status == AttemptStatus.QUEUED ? game.queue.positionOf(a.id) : null;
-        return new AttemptView(a.id, a.status, a.prompt, position, Views.imageUrl(a.imageId),
+        AttemptStatus status = a.status;
+        Integer position = null;
+        if (status == AttemptStatus.QUEUED) {
+            position = game.queue.positionOf(a.id);
+            if (position == null && game.queue.started(a.id)) {
+                status = AttemptStatus.GENERATING; // left the FIFO; attemptStarted is on its way (API.md §5)
+            }
+        }
+        return new AttemptView(a.id, status, a.prompt, position, Views.imageUrl(a.imageId),
                 Views.thumbUrl(a.imageId), a.code, a.createdAt);
     }
 

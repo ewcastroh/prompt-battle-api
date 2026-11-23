@@ -109,4 +109,5 @@ app:
     latency-ms: ${FAKE_LATENCY_MS:1500}
     failure-rate: ${FAKE_FAILURE_RATE:0}
     max-concurrency: ${FAKE_MAX_CONCURRENCY:10}
+    second-max-concurrency: ${FAKE2_MAX_CONCURRENCY:24}
     embedding-dimensions: 768

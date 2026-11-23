@@ -7,7 +7,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -65,7 +67,7 @@ public final class GenerationDispatcher implements QueuePositions, AutoCloseable
     }
 
     private record Job(String id, Target target, GenerationRequest request, Consumer<String> onStart,
-            CompletableFuture<Dispatched> result) {
+            boolean tracked, CompletableFuture<Dispatched> result) {
     }
 
     private record Selection(Job job, String providerId, boolean probe) {
@@ -91,6 +93,11 @@ public final class GenerationDispatcher implements QueuePositions, AutoCloseable
     private final Condition changed = lock.newCondition();
     private final LinkedHashMap<String, Job> pending = new LinkedHashMap<>();
     private final Map<String, Slot> slots = new LinkedHashMap<>();
+    /**
+     * Player attempts (jobs with a start callback) taken out of the FIFO for a provider, until the domain has
+     * applied their result ({@link #forget(String)}); see {@link #started(String)}.
+     */
+    private final Set<String> startedJobs = ConcurrentHashMap.newKeySet();
     private final ExecutorService runners = Executors.newVirtualThreadPerTaskExecutor();
     private final Thread dispatcher;
     private volatile boolean running = true;
@@ -119,11 +126,11 @@ public final class GenerationDispatcher implements QueuePositions, AutoCloseable
             return result;
         }
         Job job = new Job(jobId, target, request, onStart == null ? p -> {
-        } : onStart, result);
+        } : onStart, onStart != null, result);
         boolean accepted;
         lock.lock();
         try {
-            accepted = running && !pending.containsKey(jobId);
+            accepted = running && !pending.containsKey(jobId) && !startedJobs.contains(jobId);
             if (accepted) {
                 pending.put(jobId, job);
                 changed.signalAll();
@@ -191,6 +198,19 @@ public final class GenerationDispatcher implements QueuePositions, AutoCloseable
         }
     }
 
+    @Override
+    public boolean started(String jobId) {
+        return startedJobs.contains(jobId);
+    }
+
+    /**
+     * The domain applied this attempt's result: it no longer needs {@link #started(String)}. Called on the
+     * engine thread right after {@code attemptFinished}, so a view never sees QUEUED without a position.
+     */
+    public void forget(String jobId) {
+        startedJobs.remove(jobId);
+    }
+
     /** Jobs waiting in the FIFO. */
     public int length() {
         lock.lock();
@@ -252,6 +272,9 @@ public final class GenerationDispatcher implements QueuePositions, AutoCloseable
                 }
                 if (selection != null) {
                     pending.remove(selection.job().id());
+                    if (selection.job().tracked()) {
+                        startedJobs.add(selection.job().id());
+                    }
                     Slot slot = slots.get(selection.providerId());
                     slot.inFlight++;
                     slot.peak = Math.max(slot.peak, slot.inFlight);
@@ -347,34 +370,38 @@ public final class GenerationDispatcher implements QueuePositions, AutoCloseable
         }
     }
 
+    /** Runs one job; the slot is released and the future completed whatever happens, even on an Error. */
     private void run(Job job, String providerId, CircuitBreaker.Role role) {
+        GenerationResult result = new GenerationResult.Failure(FailureKind.PROVIDER_ERROR, "aborted");
+        long latencyMs = 0;
         try {
-            job.onStart().accept(providerId);
-        } catch (RuntimeException e) {
-            log.warn("Generation start callback failed: {}", e.getClass().getSimpleName());
-        }
-        long started = System.nanoTime();
-        GenerationResult result;
-        try {
-            result = registry.generator(providerId).generate(job.request());
-            if (result == null) {
-                result = new GenerationResult.Failure(FailureKind.INVALID_RESPONSE, "no result");
+            try {
+                job.onStart().accept(providerId);
+            } catch (RuntimeException e) {
+                log.warn("Generation start callback failed: {}", e.getClass().getSimpleName());
             }
-        } catch (RuntimeException e) {
-            log.warn("Image provider {} threw {}", providerId, e.getClass().getSimpleName());
-            result = new GenerationResult.Failure(FailureKind.PROVIDER_ERROR, e.getClass().getSimpleName());
-        }
-        long latencyMs = (System.nanoTime() - started) / 1_000_000;
-        try {
-            if (running) {
-                registry.record(providerId, result, latencyMs, role);
+            long started = System.nanoTime();
+            try {
+                result = registry.generator(providerId).generate(job.request());
+                if (result == null) {
+                    result = new GenerationResult.Failure(FailureKind.INVALID_RESPONSE, "no result");
+                }
+            } catch (RuntimeException e) {
+                log.warn("Image provider {} threw {}", providerId, e.getClass().getSimpleName());
+                result = new GenerationResult.Failure(FailureKind.PROVIDER_ERROR, e.getClass().getSimpleName());
             }
-        } catch (RuntimeException e) {
-            log.error("Recording the result of {} failed", providerId, e);
+            latencyMs = (System.nanoTime() - started) / 1_000_000;
+            try {
+                if (running) {
+                    registry.record(providerId, result, latencyMs, role);
+                }
+            } catch (RuntimeException e) {
+                log.error("Recording the result of {} failed", providerId, e);
+            }
         } finally {
             release(providerId);
+            job.result().complete(new Dispatched(providerId, result, latencyMs));
         }
-        job.result().complete(new Dispatched(providerId, result, latencyMs));
     }
 
     private void release(String providerId) {

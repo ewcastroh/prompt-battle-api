@@ -152,7 +152,7 @@ class ProviderController {
             case "bfl" -> props.bfl().model();
             case "gemini" -> props.gemini().embeddingModel();
             case "cohere" -> props.cohere().embeddingModel();
-            case FakeImageGenerator.ID -> props.fake().model();
+            case FakeImageGenerator.ID, FakeImageGenerator.SECOND_ID -> props.fake().model();
             default -> null;
         };
     }

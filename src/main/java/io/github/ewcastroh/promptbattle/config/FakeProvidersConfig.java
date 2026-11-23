@@ -18,6 +18,17 @@ public class FakeProvidersConfig {
         return new FakeImageGenerator(fake.model(), fake.latencyMs(), fake.failureRate(), fake.maxConcurrency());
     }
 
+    /**
+     * A second fake image provider with its own slot limit, so a load run can use the split the event uses
+     * ({@code FAKE_IMAGE_PROVIDER_CHAIN=fake,fake2}, {@code FAKE_IMAGE_LOAD_SPLIT=fake,fake2}). Unused unless listed.
+     */
+    @Bean
+    FakeImageGenerator secondFakeImageGenerator(AppProperties props) {
+        AppProperties.Fake fake = props.fake();
+        return new FakeImageGenerator(FakeImageGenerator.SECOND_ID, fake.model(), fake.latencyMs(),
+                fake.failureRate(), fake.secondMaxConcurrency());
+    }
+
     /** Offline LLM moderation and translation; used only when their flags are on. Commentary stays canned. */
     @Bean
     FakeLanguageModel fakeLanguageModel() {

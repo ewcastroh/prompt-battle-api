@@ -323,7 +323,10 @@ public final class GameRuntime implements EffectSink, SmartLifecycle, AutoClosea
                         provider -> engine.post(game -> game.attemptStarted(id, provider)))
                 .thenAccept(d -> {
                     Outcomes.AttemptOutcome outcome = toOutcome(d.result(), d.providerId());
-                    engine.post(game -> game.attemptFinished(id, outcome));
+                    engine.post(game -> {
+                        game.attemptFinished(id, outcome);
+                        dispatcher.forget(id); // after the domain saw the result (QueuePositions#started)
+                    });
                 });
     }
 

@@ -70,9 +70,12 @@ public record AppProperties(
             boolean promptLlmModeration) {
     }
 
-    /** The {@code fake} providers (profile {@code fake}). */
+    /**
+     * The {@code fake} providers (profile {@code fake}). {@code secondMaxConcurrency} is the slot limit of the
+     * second fake image provider ({@code fake2}), which stands in for BFL in load-split runs (PLAN I2).
+     */
     public record Fake(String model, long latencyMs, double failureRate, int maxConcurrency,
-            int embeddingDimensions) {
+            int secondMaxConcurrency, int embeddingDimensions) {
     }
 
     /** Configured model IDs by property name, for the forbidden-models guard. */

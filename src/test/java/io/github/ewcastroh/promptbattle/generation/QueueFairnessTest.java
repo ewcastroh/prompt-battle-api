@@ -132,6 +132,7 @@ class QueueFairnessTest {
         fal.awaitCalls(2);
         assertThat(positions(ids)).containsExactly(null, null, 1, 2, 3, 4);
         assertThat(dispatcher.length()).isEqualTo(4);
+        assertThat(dispatcher.started("mde-1")).as("no start callback: not a player attempt").isFalse();
 
         fal.release("mde-1");
         fal.awaitCalls(3);
@@ -147,6 +148,26 @@ class QueueFairnessTest {
         assertThat(positions(ids)).containsOnlyNulls();
         assertThat(dispatcher.positionOf("unknown")).isNull();
         assertThat(dispatcher.length()).isZero();
+    }
+
+    /** API.md §5: an attempt out of the FIFO counts as started until the domain applied its result. */
+    @Test
+    void anAttemptStaysStartedUntilTheDomainForgetsIt() {
+        CompletableFuture<Dispatched> running = dispatcher.submit("mde-1", Target.FLEXIBLE,
+                GenerationRequest.square("mde-1", 42), provider -> {
+                });
+        fal.awaitCalls(1);
+        assertThat(dispatcher.positionOf("mde-1")).isNull();
+        assertThat(dispatcher.started("mde-1")).isTrue();
+
+        fal.release("mde-1");
+        done(running);
+        assertThat(dispatcher.started("mde-1")).as("result not applied by the domain yet").isTrue();
+        Dispatched again = done(dispatcher.submit("mde-1", Target.FLEXIBLE, GenerationRequest.square("x", 1), null));
+        assertThat(again.providerId()).as("an id still running or unapplied is rejected").isNull();
+
+        dispatcher.forget("mde-1");
+        assertThat(dispatcher.started("mde-1")).isFalse();
     }
 
     @Test

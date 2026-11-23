@@ -1,7 +1,9 @@
 # Profile "fake": every provider is fake; no keys needed; the app is fully playable offline (SPEC §11.1).
 app:
   image:
-    provider-chain: fake
-    load-split: ""
+    # Default: one fake provider, no split. A load run can mirror the event's fal,bfl split with fake,fake2
+    # (own variables, so IMAGE_PROVIDER_CHAIN=fal,bfl in a .env never names a provider the profile lacks).
+    provider-chain: ${FAKE_IMAGE_PROVIDER_CHAIN:fake}
+    load-split: ${FAKE_IMAGE_LOAD_SPLIT:}
   embedding:
     provider-chain: fake

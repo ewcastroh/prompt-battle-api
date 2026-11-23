@@ -66,6 +66,22 @@ class AttemptAccountingTest {
         assertThat(game.views().attempt(token, queued).status()).isEqualTo(AttemptStatus.GENERATING);
     }
 
+    /** API.md §5: a QUEUED attempt has a position; once the dispatcher took it out of the FIFO it shows GENERATING. */
+    @Test
+    void anAttemptLeavingTheQueueIsNeverQueuedWithoutAPosition() {
+        String id = fx.attempt(token, "z");
+        fx.queuePositions.put(id, 3);
+        assertThat(game.views().attempt(token, id).status()).isEqualTo(AttemptStatus.QUEUED);
+        assertThat(game.views().attempt(token, id).queuePosition()).isEqualTo(3);
+
+        fx.queuePositions.remove(id);
+        fx.startedJobs.add(id); // dispatched; attemptStarted not processed yet
+        Views.AttemptView starting = game.views().attempt(token, id);
+        assertThat(starting.status()).isEqualTo(AttemptStatus.GENERATING);
+        assertThat(starting.queuePosition()).isNull();
+        assertThat(game.views().me(token).attempts().getLast().status()).isEqualTo(AttemptStatus.GENERATING);
+    }
+
     @Test
     void onlyOneGenerationInFlight() {
         String first = fx.attempt(token, "one");
