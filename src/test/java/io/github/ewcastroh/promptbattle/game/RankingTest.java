@@ -102,6 +102,29 @@ class RankingTest {
         assertThat(ranking()).containsExactly("Ana", "Cata");
     }
 
+    /** A hidden image can't come back by being selected again (A hidden, B selected, A selected again). */
+    @Test
+    void aHiddenEntryStaysHiddenWhenItsPlayerSelectsItAgain() {
+        String ana = fx.join(MDE, "Ana");
+        String beto = fx.join(MDE, "Beto");
+        game.startRound(MDE, r1);
+        String a = fx.done(ana, "inappropriate");
+        game.selectEntry(ana, a);
+        game.hideEntry(MDE, a, true);
+        String b = fx.done(ana, "fine");
+        game.selectEntry(ana, b);
+        assertThat(fx.run(MDE, r1).entries.get(fx.playerId(ana)).hidden).isFalse();
+        game.selectEntry(ana, a);
+        assertThat(fx.run(MDE, r1).entries.get(fx.playerId(ana)).hidden).isTrue();
+        game.selectEntry(ana, a); // tapping "Submit this one" again
+        assertThat(fx.run(MDE, r1).entries.get(fx.playerId(ana)).hidden).isTrue();
+
+        String c = fx.done(beto, "ok");
+        game.selectEntry(beto, c);
+        fx.closeAndScore(MDE, r1, Map.of(a, 0.9, c, 0.5));
+        assertThat(ranking()).containsExactly("Beto");
+    }
+
     @Test
     void podiumSizeIsMinOfFiveAndEligiblePlayers() {
         String ana = fx.join(MDE, "Ana");

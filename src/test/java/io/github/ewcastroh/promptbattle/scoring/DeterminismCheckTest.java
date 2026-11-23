@@ -135,6 +135,24 @@ class DeterminismCheckTest {
         assertThat(gemini.calls("entry")).as("nothing cached from the skipped prefetch").isEqualTo(1);
     }
 
+    /** Code review I2: scoring that joins a failed prefetch (no retries) redoes the call instead of failing. */
+    @Test
+    void scoringJoiningAFailedPrefetchRedoesTheCall() throws Exception {
+        CountDownLatch gate = new CountDownLatch(1);
+        gemini.gate = gate;
+        gemini.failNext.put("entry", 1);
+        EmbeddingService service = service(8);
+        CompletableFuture<Void> prefetch = CompletableFuture.runAsync(() -> service.prefetch(entry, "gemini"));
+        await().atMost(Duration.ofSeconds(2)).until(() -> gemini.calls("entry") == 1);
+        CompletableFuture<double[]> scoring = CompletableFuture.supplyAsync(() -> service.embed(entry, "gemini"));
+        Thread.sleep(50); // scoring joins the prefetch's call
+        gate.countDown();
+
+        assertThat(scoring.get()).hasSize(RecordingEmbeddingProvider.DIMENSIONS);
+        prefetch.get();
+        assertThat(gemini.calls("entry")).as("the failed prefetch, then scoring's own call").isEqualTo(2);
+    }
+
     @Test
     void aSkippedPrefetchDoesNotPoisonTheCache() {
         gemini.skipWithoutWaiting = true;

@@ -19,6 +19,8 @@ final class Attempt {
     String model;
     Instant createdAt;
     Instant finishedAt;
+    /** An admin hid this image as an entry; a new entry for it starts hidden (older snapshots: false). */
+    boolean hidden;
 
     Attempt() {
     }

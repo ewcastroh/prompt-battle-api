@@ -35,7 +35,11 @@ public final class EmbeddingService {
     private final Map<String, Semaphore> permits = new LinkedHashMap<>();
     private final ImageStore images;
     private final Clock clock;
-    private final Map<Key, CompletableFuture<double[]>> cache = new ConcurrentHashMap<>();
+    private final Map<Key, Shared> cache = new ConcurrentHashMap<>();
+
+    /** A cached call and whether its owner waits (scoring) or is a best-effort prefetch (no retries). */
+    private record Shared(CompletableFuture<double[]> future, boolean waiting) {
+    }
     private final Set<String> averaging = ConcurrentHashMap.newKeySet();
     private final Map<String, Health> health = new ConcurrentHashMap<>();
 
@@ -141,21 +145,28 @@ public final class EmbeddingService {
 
     /**
      * The {@code n}-th vector of an image, cached; callers of the same key share one call. The owner's work is
-     * never interrupted by other callers. A shared call that a prefetch skipped is redone by a waiting caller.
+     * never interrupted by other callers. A shared call that a prefetch skipped or failed is redone by a waiting
+     * caller: a prefetch makes one attempt without retries, scoring retries and must not inherit its failure.
      */
     private double[] call(String imageId, String providerId, int n, boolean wait) {
         EmbeddingProvider provider = require(providerId);
         Key key = new Key(imageId, providerId, n);
-        CompletableFuture<double[]> mine = new CompletableFuture<>();
-        CompletableFuture<double[]> existing = cache.putIfAbsent(key, mine);
+        Shared shared = new Shared(new CompletableFuture<>(), wait);
+        CompletableFuture<double[]> mine = shared.future();
+        Shared existing = cache.putIfAbsent(key, shared);
         if (existing != null) {
             try {
-                return join(existing);
+                return join(existing.future());
             } catch (EmbeddingException.Skipped skipped) {
                 if (!wait) {
                     throw skipped;
                 }
                 return call(imageId, providerId, n, true); // the owner was a prefetch that gave up
+            } catch (EmbeddingException failed) {
+                if (wait && !existing.waiting()) {
+                    return call(imageId, providerId, n, true); // the owner was a prefetch: retry it properly
+                }
+                throw failed;
             }
         }
         try {
@@ -166,7 +177,7 @@ public final class EmbeddingService {
             mine.complete(vector);
             return vector;
         } catch (RuntimeException e) {
-            cache.remove(key, mine);
+            cache.remove(key, shared);
             mine.completeExceptionally(e);
             throw e;
         }

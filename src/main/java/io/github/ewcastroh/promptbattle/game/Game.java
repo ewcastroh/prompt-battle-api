@@ -381,6 +381,7 @@ public final class Game {
         e.playerId = a.playerId;
         e.selectedAt = at;
         e.auto = auto;
+        e.hidden = a.hidden; // a hidden image stays hidden when its player selects it again
         run.entries.put(a.playerId, e);
         if (!settings.eagerEmbeddings()) {
             prefetch(run, a);
@@ -1031,6 +1032,10 @@ public final class Game {
                             throw new GameException(ErrorCode.ADMIN_FORBIDDEN, "Entry belongs to another city");
                         }
                         e.hidden = hidden;
+                        Located loc = findAttempt(entryId);
+                        if (loc != null) {
+                            loc.attempt().hidden = hidden;
+                        }
                         refreshCommentary(city);
                         return;
                     }

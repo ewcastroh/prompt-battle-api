@@ -43,6 +43,21 @@ The image builds the jar with Temurin 25 and runs it on the Temurin 25 JRE as an
 
 Includes the state machine and its 409s, per-city isolation, attempt accounting, close and grace rules, ranking and tie-breaks, scoring, nickname rules, admin auth, the round lock, snapshot restore, CORS, ETag, the API contract shapes and a full 2 cities × 50 players simulation; and for the providers: WireMock tests of every adapter (fal, BFL, Gemini, Cohere), the circuit breaker and event-wide failover, the shared queue and its per-provider limits, the load split, embedding failover and consistency, the Gemini free-tier limiter, the determinism check and the probe; and for A3: the Anthropic commentary adapter against WireMock (request schema, images, auth, refusals, no retries, timeouts), the canned fallback in both languages, that no reveal waits on an AI call, the blocklist normalization, the LLM moderation and translation flags, the results CSV and the event reset. Tests never call real providers.
 
+## Load test
+
+`scripts/loadtest.sh` (SPEC §14.3) plays 2 cities × 50 phones × 3 attempts within 120 s against a **running** API: every phone polls `/api/me` every 1.5 s with `If-None-Match`, stages every 1.5 s and admins every 2 s (≈ 75 requests/s). It creates one scored round, starts it in every city, closes both at once and prints p50/p95/max from "Generate" to image visible, errors and close → scored per city. Exit code 0 = every gate passed (p95 ≤ 15 s, close → scored ≤ 15 s, every attempt within 120 s, no errors on `fake`).
+
+```bash
+# fake profile, with the fake provider's limit set to the real provider's (BFL: 24)
+SPRING_PROFILES_ACTIVE=fake FAKE_MAX_CONCURRENCY=24 FAKE_LATENCY_MS=3000 ./mvnw spring-boot:run
+PB_ADMIN_TOKEN_MDE=<token> PB_ADMIN_TOKEN_BOG=<token> scripts/loadtest.sh --reset            # realistic arrivals
+PB_ADMIN_TOKEN_MDE=<token> PB_ADMIN_TOKEN_BOG=<token> scripts/loadtest.sh --reset --ramp 0   # everyone at once
+# real providers (production, before doors open): at most 40 generations, then reset the event
+PB_ADMIN_TOKEN_MDE=<token> PB_ADMIN_TOKEN_BOG=<token> scripts/loadtest.sh --real --base-url https://<api>
+```
+
+`--reset` deletes every city's data. To mirror a two-provider split on `fake`, set `FAKE_IMAGE_PROVIDER_CHAIN=fake,fake2`, `FAKE_IMAGE_LOAD_SPLIT=fake,fake2` and `FAKE2_MAX_CONCURRENCY`. `scripts/loadtest.sh --help` lists every option.
+
 ## Providers
 - **Images:** fal.ai through its queue API (`FAL_KEY`) and Black Forest Labs (`BFL_API_KEY`), same model (FLUX.2 [klein] 9B). `IMAGE_PROVIDER_CHAIN` is the failover order; with `IMAGE_LOAD_SPLIT` each job goes to the active provider and overflows to the other listed one when its slots (`FAL_MAX_CONCURRENCY`, `BFL_MAX_CONCURRENCY`) are full. A provider without a key is skipped.
 - **Failover:** 3 failures in 30 s open a provider's circuit for 60 s and switch the active provider for both cities; either admin can force a provider (`POST /api/admin/providers/active`). Safety blocks never count.
@@ -61,4 +76,4 @@ Every setting is an environment variable (see `.env.example` and `docs/SPEC.md` 
 - Never commit secrets: this repository is public. Keys live in the hosting dashboard and GitHub Actions secrets.
 
 ## Status
-Phases A1 (game core), A2 (real providers, failover, scoring, probe) and A3 (commentary, moderation, CSV export, event reset, Dockerfile). Next: the first Railway deploy (`docs/DEPLOYMENT.md` in the parent repo).
+Phases A1 (game core), A2 (real providers, failover, scoring, probe), A3 (commentary, moderation, CSV export, event reset, Dockerfile) and I2 (load test, review fixes). Frozen at `v1.0-freeze`; event-day operation is in `docs/RUNBOOK.md` in the parent repo.
