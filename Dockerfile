@@ -30,6 +30,7 @@ COPY --from=build --chown=root:root /app.jar /app/app.jar
 COPY --chmod=755 docker-entrypoint.sh /app/docker-entrypoint.sh
 ENV DATA_DIR=/data \
     JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
-VOLUME /data
+# No VOLUME instruction: Railway rejects it ("use Railway Volumes"). Mount the volume at /data instead
+# (Railway volume, Compose ./data:/data, or docker run -v).
 EXPOSE 8080
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
