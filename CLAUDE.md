@@ -32,4 +32,5 @@ Specs live in the parent repo (`prompt-battle-kit`): `docs/SPEC.md`, `docs/API.m
 - Never log API keys, player or admin tokens, or prompt text above DEBUG. Players never upload images.
 - One instance only; in-memory state with a snapshot in `DATA_DIR`. No database, Redis or broker.
 - Ask before adding a dependency. Latest stable versions, pinned; never upgrade implicitly.
+- Branches: one branch per change, never work on `main` (D-028). Check `git branch --show-current` before editing; if it is `main`, create `<phase-or-type>/<short-topic>` first. `main` only changes through a pull request that the owner merges.
 - Commits: `<phase>: <summary>` on behalf of the owner, without AI attribution trailers.
