@@ -26,6 +26,15 @@ The `fake` profile replaces every provider: images are generated locally and sco
 
 From the parent folder, `docker compose up --build` runs the API with the UI (after the integration phase).
 
+To test from a phone on the same Wi-Fi with the UI's `npm run start:lan`, set these in this folder's `.env` (`<LAN IP>` from `ipconfig getifaddr en0` on macOS), then restart the API:
+
+```bash
+PUBLIC_UI_URL=http://<LAN IP>:4200                              # the stage QR code points here
+CORS_ALLOWED_ORIGINS=http://localhost:4200,http://<LAN IP>:4200
+```
+
+With Docker Compose, set `LAN_HOST` in the parent `.env` instead. See `docs/DEPLOYMENT.md` → "Testing on your phone" in the parent repo.
+
 ### Docker
 
 ```bash
